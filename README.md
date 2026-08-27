@@ -4,35 +4,13 @@
 
 > ## ⚠ LightSaber is moving to [Cyanide](https://github.com/0xjohnnydev/cyanide)
 >
-> Active development has moved to **[Cyanide](https://github.com/0xjohnnydev/cyanide)** and LightSaber will be discontinued soon. Cyanide is built on a full **kernel exploit** instead of this WebKit + sandbox-escape userland chain, which makes it dramatically more reliable: no Safari freezes, no multi-try retries, no "webpage crashed" banners, no kernel panics from a flaky userland chain. The same tweaks (SBCustomizer, Powercuff, StatBar, App Library, etc.) install in one shot from a signed app and survive cleanly until respring/reboot.
->
-> **Use LightSaber only if you can't run Cyanide on your device.** Otherwise, head to **[github.com/0xjohnnydev/cyanide](https://github.com/0xjohnnydev/cyanide)**.
+> Cyanide is built on a full kernel exploit instead of this WebKit + sandbox-escape chain — no Safari freezes, no failed retries, no kernel panics from a flaky userland exploit. The same tweaks install in one shot from a signed app and persist until respring/reboot. Use LightSaber only if your device can't run Cyanide.
 
-iOS 18.4 - 18.6.2 userland exploit chain with JavaScript injection that modifies SpringBoard and other system processes at runtime. Open source, derived from [DarkSword](https://iverify.io/blog/darksword-ios-exploit-kit-explained) with all malware communication stripped.
-
-> **This is not tweak injection.** It is runtime JS modification through an exploit chain. Changes persist until respring or reboot - this is not dylib injection like a full jailbreak.
+iOS 18.4 - 18.6.2 userland exploit chain with JavaScript injection that modifies SpringBoard and other system processes at runtime, derived from [DarkSword](https://iverify.io/blog/darksword-ios-exploit-kit-explained) with all malware communication stripped. This is runtime JS modification through an exploit chain, not dylib injection like a full jailbreak — changes persist until respring or reboot.
 
 ## Supported devices
 
 Every arm64e iPhone (A12 - A18 Pro) running iOS 18.4 - 18.6.2.
-
-## Roadmap
-
-**To do**
-
-- [ ] Improve chain reliability and reproducibility
-- [ ] Add offsets to support more iOS 18.x versions
-- [ ] Get StatBar functional (data reporting works but UI display hits nonstop PAC violations)
-- [ ] Resolve compatibility issues with Nugget and similar tools
-
-**Done**
-
-- [x] Full WebContent RCE → kernel R/W → sandbox escape chain
-- [x] SBCustomizer (dock icons, home grid columns/rows, hide labels)
-- [x] Powercuff battery saver (4 throttle levels via thermalmonitord)
-- [x] Multi-tweak picker with single chain execution
-- [x] Support for every arm64e iPhone on iOS 18.4 - 18.6.2
-- [x] #cloutfarmed
 
 ## How it works
 
@@ -53,13 +31,8 @@ LightSaber chains a WebContent RCE into kernel R/W via sandbox escape, then uses
 
 ## Available tweaks
 
-### SBCustomizer
-
-Runtime SpringBoard layout customization: dock icon count, home screen columns and rows, hide icon labels. Patched once during chain execution.
-
-### Powercuff
-
-Port of [rpetrich's Powercuff](https://github.com/rpetrich/Powercuff). Underclocks CPU/GPU via thermalmonitord for extended battery life. Four levels: nominal, light, moderate, heavy. Lasts until reboot.
+- **SBCustomizer** — runtime SpringBoard layout customization: dock icon count, home screen columns and rows, hide icon labels. Patched once during chain execution.
+- **Powercuff** — port of [rpetrich's Powercuff](https://github.com/rpetrich/Powercuff). Underclocks CPU/GPU via thermalmonitord for extended battery life. Four levels: nominal, light, moderate, heavy. Lasts until reboot.
 
 ## Usage
 
