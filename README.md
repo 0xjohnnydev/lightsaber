@@ -1,12 +1,12 @@
 # LightSaber
 
-**[zeroxjf.github.io/lightsaber](https://zeroxjf.github.io/lightsaber/)**
+**[0xjohnnydev.github.io/lightsaber](https://0xjohnnydev.github.io/lightsaber/)**
 
-> ## ⚠ LightSaber is moving to [Cyanide](https://github.com/zeroxjf/cyanide-ios)
+> ## ⚠ LightSaber is moving to [Cyanide](https://github.com/0xjohnnydev/cyanide)
 >
-> Active development has moved to **[Cyanide](https://github.com/zeroxjf/cyanide-ios)** and LightSaber will be discontinued soon. Cyanide is built on a full **kernel exploit** instead of this WebKit + sandbox-escape userland chain, which makes it dramatically more reliable: no Safari freezes, no multi-try retries, no "webpage crashed" banners, no kernel panics from a flaky userland chain. The same tweaks (SBCustomizer, Powercuff, StatBar, App Library, etc.) install in one shot from a signed app and survive cleanly until respring/reboot.
+> Active development has moved to **[Cyanide](https://github.com/0xjohnnydev/cyanide)** and LightSaber will be discontinued soon. Cyanide is built on a full **kernel exploit** instead of this WebKit + sandbox-escape userland chain, which makes it dramatically more reliable: no Safari freezes, no multi-try retries, no "webpage crashed" banners, no kernel panics from a flaky userland chain. The same tweaks (SBCustomizer, Powercuff, StatBar, App Library, etc.) install in one shot from a signed app and survive cleanly until respring/reboot.
 >
-> **Use LightSaber only if you can't run Cyanide on your device.** Otherwise, head to **[github.com/zeroxjf/cyanide-ios](https://github.com/zeroxjf/cyanide-ios)**.
+> **Use LightSaber only if you can't run Cyanide on your device.** Otherwise, head to **[github.com/0xjohnnydev/cyanide](https://github.com/0xjohnnydev/cyanide)**.
 
 iOS 18.4 - 18.6.2 userland exploit chain with JavaScript injection that modifies SpringBoard and other system processes at runtime. Open source, derived from [DarkSword](https://iverify.io/blog/darksword-ios-exploit-kit-explained) with all malware communication stripped.
 
@@ -63,7 +63,7 @@ Port of [rpetrich's Powercuff](https://github.com/rpetrich/Powercuff). Undercloc
 
 ## Usage
 
-Visit [zeroxjf.github.io/lightsaber](https://zeroxjf.github.io/lightsaber/) in Safari on a supported device. Pick your tweaks, tap **Install Selected**, and keep Safari in the foreground for up to 60 seconds while the chain runs.
+Visit [0xjohnnydev.github.io/lightsaber](https://0xjohnnydev.github.io/lightsaber/) in Safari on a supported device. Pick your tweaks, tap **Install Selected**, and keep Safari in the foreground for up to 60 seconds while the chain runs.
 
 **If it fails** (page flash, "A problem repeatedly occurred", or "webpage crashed" banner): clear Safari's cache (book icon > Clear), reload, and retry. If it keeps failing, reboot, clear cache again, and try once more.
 

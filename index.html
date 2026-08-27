@@ -9,17 +9,17 @@
   <meta property="og:site_name" content="LightSaber">
   <meta property="og:title" content="LightSaber - iOS 18.4-18.6.2 research tool">
   <meta property="og:description" content="iOS userland exploit chain with JavaScript injection that modifies SpringBoard and other processes at runtime. Open source, derived from DarkSword.">
-  <meta property="og:url" content="https://zeroxjf.github.io/lightsaber/">
-  <meta property="og:image" content="https://zeroxjf.github.io/lightsaber/icons/lightsaber-logo.png">
+  <meta property="og:url" content="https://0xjohnnydev.github.io/lightsaber/">
+  <meta property="og:image" content="https://0xjohnnydev.github.io/lightsaber/icons/lightsaber-logo.png">
   <meta property="og:image:width" content="1536">
   <meta property="og:image:height" content="1024">
   <meta property="og:image:alt" content="LightSaber logo - blue lightsaber with the LightSaber wordmark">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:site" content="@zeroxjf">
-  <meta name="twitter:creator" content="@zeroxjf">
+  <meta name="twitter:site" content="@0xjohnny">
+  <meta name="twitter:creator" content="@0xjohnny">
   <meta name="twitter:title" content="LightSaber - iOS 18.4-18.6.2 research tool">
   <meta name="twitter:description" content="iOS userland exploit chain with JavaScript injection that modifies SpringBoard and other processes at runtime. Open source, derived from DarkSword.">
-  <meta name="twitter:image" content="https://zeroxjf.github.io/lightsaber/icons/lightsaber-logo.png">
+  <meta name="twitter:image" content="https://0xjohnnydev.github.io/lightsaber/icons/lightsaber-logo.png">
   <meta name="twitter:image:alt" content="LightSaber logo - blue lightsaber with the LightSaber wordmark">
   <link rel="icon" type="image/png" href="icons/lightsaber-logo.png">
   <link rel="apple-touch-icon" href="icons/lightsaber-logo.png">
@@ -263,7 +263,7 @@
       margin: -6px auto 12px;
     }
     .install-status.error { color: #dc2626; }
-    /* Running state — stands up the "Running chain (~1 min)" line as the
+    /* Running state - stands up the "Running chain (~1 min)" line as the
        primary attention anchor while the chain works. Pulsing dot, bold
        title in accent ink, muted subtitle for the freeze caveat. */
     .install-status.running {
@@ -657,7 +657,7 @@
       letter-spacing: -0.02em;
       text-align: left;
     }
-    /* Stage banner sits in the same card-alt block as the phase strip — no
+    /* Stage banner sits in the same card-alt block as the phase strip - no
        border between them so they read as one cohesive header. The phase
        strip's pulsing active bar replaces the old standalone status dot. */
     .log-stage-banner {
@@ -760,8 +760,8 @@
     }
     /* Freeze-imminent treatment. Applied at fcall (the last paint before
        WebKit hands off to native and the parent main thread freezes with
-       it). Phases 3–5 will run during the freeze and never tick live, so
-       they switch from inert gray to amber + slow opacity pulse — that
+       it). Phases 3-5 will run during the freeze and never tick live, so
+       they switch from inert gray to amber + slow opacity pulse - that
        reads as "queued and running in the background", not "stuck". The
        active WebKit phase stays its normal blue, since it is the phase
        actually executing. */
@@ -776,17 +776,17 @@
       0%, 100% { opacity: 0.95; }
       50%      { opacity: 0.45; }
     }
-    /* Stagger the waiting-pulse so the bars don't all blink in unison —
+    /* Stagger the waiting-pulse so the bars don't all blink in unison -
        reads more like "queue progressing" than "all 3 idle together". */
     .log-phase-strip.is-frozen .log-phase[data-phase="3"] .log-phase-bar { animation-delay: 0s; }
     .log-phase-strip.is-frozen .log-phase[data-phase="4"] .log-phase-bar { animation-delay: 0.4s; }
     .log-phase-strip.is-frozen .log-phase[data-phase="5"] .log-phase-bar { animation-delay: 0.8s; }
-    /* Brackets that wrap the amber phase bars (3–5) directly on the strip.
+    /* Brackets that wrap the amber phase bars (3-5) directly on the strip.
        Positioned absolutely so they hug the bars themselves rather than
        sitting in a row below. Geometry: strip uses 5 equal columns with
        18px L/R padding and 6px gaps, so phase 3's left edge sits at
        roughly 40% + 6/W of strip width, and phase 5's right edge sits
-       18px from strip's right edge — close enough across phone widths
+       18px from strip's right edge - close enough across phone widths
        that the brackets visually cradle the three amber bars. */
     .log-phase-strip { position: relative; }
     .frozen-bracket {
@@ -1037,7 +1037,7 @@
     .dialog.intro .dialog-btns {
       margin-top: 6px;
     }
-    /* Cyanide migration notice — deliberately cool/teal so it doesn't read
+    /* Cyanide migration notice - deliberately cool/teal so it doesn't read
        as another red/orange "you broke something" warning. */
     .migration-primary,
     .migration-secondary,
@@ -1698,7 +1698,7 @@
   </style>
 </head>
 <body>
-  <a id="cyanideBanner" class="cyanide-banner" href="https://github.com/zeroxjf/cyanide-ios" target="_blank" rel="noopener" aria-label="LightSaber is moving to Cyanide">
+  <a id="cyanideBanner" class="cyanide-banner" href="https://github.com/0xjohnnydev/cyanide" target="_blank" rel="noopener" aria-label="LightSaber is moving to Cyanide">
     <span class="cyanide-banner-pulse" aria-hidden="true"></span>
     <span class="cyanide-banner-copy">
       <strong>LightSaber is moving to Cyanide.</strong>
@@ -1709,15 +1709,15 @@
   <div class="page">
     <div class="page-header">
       <div class="page-title">LightSaber</div>
-      <div class="page-subtitle">iOS research tool(s)? 👀</div>
+      <div class="page-subtitle">iOS research tool(s)? &#128064;</div>
       <div class="page-author">
-        <a href="https://twitter.com/zeroxjf" target="_blank" rel="noopener" title="Follow @zeroxjf on X / Twitter">
-          @zeroxjf
+        <a href="https://twitter.com/0xjohnny" target="_blank" rel="noopener" title="Follow @0xjohnny on X / Twitter">
+          @0xjohnny
           <svg height="11" width="11" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h2.039L6.486 3.24H4.298z"/></svg>
         </a>
       </div>
       <div class="header-cards">
-        <a class="header-card" href="https://github.com/zeroxjf/LightSaber" target="_blank" rel="noopener" title="View lightsaber source on GitHub">
+        <a class="header-card" href="https://github.com/0xjohnnydev/LightSaber" target="_blank" rel="noopener" title="View lightsaber source on GitHub">
           <svg height="14" width="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           <span>Open source on GitHub</span>
         </a>
@@ -2022,7 +2022,7 @@
     <details class="debug">
       <summary><strong>Extra debugging</strong> &mdash; capture device logs from a Mac</summary>
       <div class="details-body">
-        Requires <a href="https://brew.sh" target="_blank" rel="noopener">Homebrew</a> + <code>brew install libimobiledevice</code> (provides <code>idevicesyslog</code>) and Python 3 (preinstalled on macOS). Download <a href="./syslog.py" download="syslog.py">syslog.py</a> (<a href="https://github.com/zeroxjf/LightSaber/blob/main/syslog.py" target="_blank" rel="noopener">source</a>), connect and trust your iPhone, then run <code>python3 syslog.py</code> from Terminal. Press <code>Ctrl+C</code> after a run; the filtered log is saved under <code>lightsaber-logs/</code>.
+        Requires <a href="https://brew.sh" target="_blank" rel="noopener">Homebrew</a> + <code>brew install libimobiledevice</code> (provides <code>idevicesyslog</code>) and Python 3 (preinstalled on macOS). Download <a href="./syslog.py" download="syslog.py">syslog.py</a> (<a href="https://github.com/0xjohnnydev/LightSaber/blob/main/syslog.py" target="_blank" rel="noopener">source</a>), connect and trust your iPhone, then run <code>python3 syslog.py</code> from Terminal. Press <code>Ctrl+C</code> after a run; the filtered log is saved under <code>lightsaber-logs/</code>.
       </div>
     </details>
 
@@ -2043,7 +2043,7 @@
     <details class="warning">
       <summary><strong>Use caution</strong> &mdash; unstable, not for daily drivers</summary>
       <div class="details-body">
-        Derived from the <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">DarkSword</a> exploit chain with all malware communication stripped and <a href="https://github.com/zeroxjf/LightSaber">fully open source</a>, but this is an inherently unstable chain and is <strong>not recommended for deployment on a daily driver</strong> unless you are willing to accept the risk. The chain may take several tries to succeed, SpringBoard may crash, the kernel may panic. Use at your own risk &mdash; I am not liable for any damage or data loss.
+        Derived from the <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">DarkSword</a> exploit chain with all malware communication stripped and <a href="https://github.com/0xjohnnydev/LightSaber">fully open source</a>, but this is an inherently unstable chain and is <strong>not recommended for deployment on a daily driver</strong> unless you are willing to accept the risk. The chain may take several tries to succeed, SpringBoard may crash, the kernel may panic. Use at your own risk &mdash; I am not liable for any damage or data loss.
       </div>
     </details>
 
@@ -2057,7 +2057,7 @@
       <a href="https://twitter.com/cro4js" target="_blank" rel="noopener">@cro4js</a> &mdash; UI suggestions
     </div>
 
-    <p class="version">v0.0.132</p>
+    <p class="version">v0.0.133</p>
   </div>
 
   <div class="tweak-sheet-backdrop" id="tweakSheetBackdrop"></div>
@@ -2074,7 +2074,7 @@
       <h2>LightSaber is moving to Cyanide</h2>
       <p class="intro-sub">Please read this before continuing.</p>
       <div class="migration-primary">
-        <strong>LightSaber will be discontinued soon.</strong> Active development has moved to <a href="https://github.com/zeroxjf/cyanide-ios" target="_blank" rel="noopener">Cyanide</a>, which is built on a full kernel exploit instead of this WebKit + sandbox-escape chain. Cyanide is dramatically more reliable: no Safari freezes, no multi-try chain runs, no kernel panics from a flaky userland exploit, and tweaks persist properly instead of being JS injected at runtime.
+        <strong>LightSaber will be discontinued soon.</strong> Active development has moved to <a href="https://github.com/0xjohnnydev/cyanide" target="_blank" rel="noopener">Cyanide</a>, which is built on a full kernel exploit instead of this WebKit + sandbox-escape chain. Cyanide is dramatically more reliable: no Safari freezes, no multi-try chain runs, no kernel panics from a flaky userland exploit, and tweaks persist properly instead of being JS injected at runtime.
       </div>
       <div class="migration-secondary">
         <strong>Why switch.</strong> LightSaber is a userland chain stitched together from DarkSword &mdash; it works, but SpringBoard crashes, page freezes, and "webpage crashed" retries are inherent to it. Cyanide runs from a signed app via the kernel exploit, so the same tweaks (SBCustomizer, Powercuff, StatBar, App Library, etc.) install in one shot and survive cleanly. Same author, same tweaks, far better foundation.
@@ -2083,7 +2083,7 @@
         <strong>If you still want to use LightSaber:</strong> this is JavaScript injection during an exploit chain that modifies processes at runtime; changes persist until respring or reboot. The chain may take several tries to succeed, SpringBoard may crash, the kernel may panic. Use at your own risk &mdash; I am not liable for any damage or data loss.
       </div>
       <div class="dialog-btns">
-        <button class="btn-cyanide" onclick="window.open('https://github.com/zeroxjf/cyanide-ios','_blank','noopener')">Get Cyanide</button>
+        <button class="btn-cyanide" onclick="window.open('https://github.com/0xjohnnydev/cyanide','_blank','noopener')">Get Cyanide</button>
         <button class="btn-cancel" onclick="dismissIntro()">Continue with LightSaber</button>
       </div>
     </div>
@@ -2095,9 +2095,9 @@
       <p>After you press Proceed, keep Safari open and do not lock the phone. The full run usually takes about 1 minute, approximately.</p>
       <div class="run-expectations" style="margin-top:12px;text-align:left">
         <div class="expectation-list">
-          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Page freezes for ~45&ndash;60s:</strong> WebKit handoff &mdash; no UI updates after that.</span></div>
-          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Safari crashes to home screen:</strong> good signal &mdash; tweaks about to install.</span></div>
-          <div class="expectation-row"><span class="expectation-badge">✓</span><span class="expectation-copy"><strong>Wait 10&ndash;20 seconds:</strong> then check the home screen.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">&#10003;</span><span class="expectation-copy"><strong>Page freezes for ~45&ndash;60s:</strong> WebKit handoff &mdash; no UI updates after that.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">&#10003;</span><span class="expectation-copy"><strong>Safari crashes to home screen:</strong> good signal &mdash; tweaks about to install.</span></div>
+          <div class="expectation-row"><span class="expectation-badge">&#10003;</span><span class="expectation-copy"><strong>Wait 10&ndash;20 seconds:</strong> then check the home screen.</span></div>
         </div>
       </div>
       <div class="dialog-btns">
@@ -2158,7 +2158,7 @@
         var el = document.getElementById('introOverlay');
         if (el) el.className = 'overlay active';
       } else {
-        // Intro already cleared — slide the bookmark prompt in shortly after
+        // Intro already cleared - slide the bookmark prompt in shortly after
         // first paint so it's not the first thing the user sees on load.
         setTimeout(maybeShowBookmarkPrompt, 900);
       }
@@ -2189,9 +2189,32 @@
       var el = document.getElementById('bookmarkPrompt');
       if (el) el.classList.remove('visible');
     }
+    function isLocalVPhone() {
+      try {
+        return location.hostname === '192.168.64.1';
+      } catch (e) {
+        return false;
+      }
+    }
+    function getForcedIosVersion() {
+      try {
+        var params = new URLSearchParams(location.search || '');
+        var forced = params.get('ios') || params.get('ios_version') || '';
+        forced = String(forced).replace(/_/g, '.').trim();
+        if (/^\d+(?:\.\d+){0,2}$/.test(forced)) return forced;
+        // vPhone/Safari on the iPhone17,3 23B85 image reports an 18.7 UA.
+        // For the local research server, make the no-query URL deterministic.
+        if (isLocalVPhone()) return '26.1';
+        return null;
+      } catch (e) {
+        return null;
+      }
+    }
     var ua = navigator.userAgent;
     var iosMatch = /iPhone OS ([0-9_]+)/g.exec(ua);
-    var iosVer = iosMatch ? iosMatch[1].replace(/_/g, '.') : null;
+    var uaIosVer = iosMatch ? iosMatch[1].replace(/_/g, '.') : null;
+    var forcedIosVer = getForcedIosVersion();
+    var iosVer = forcedIosVer || uaIosVer;
     var iosParts = iosVer ? iosVer.split('.').map(Number) : [0,0,0];
     var major = iosParts[0], minor = iosParts[1], patch = iosParts[2] || 0;
     var isIphone = /iPhone/.test(ua);
@@ -2209,7 +2232,7 @@
     // Sticky-bottom behavior: autoscroll on each new line ONLY while the
     // user is already pinned at (or near) the bottom of the scroll. As soon
     // as they scroll up to read history, autoscroll pauses so we don't
-    // fight their input — otherwise every new line yanks them back to
+    // fight their input - otherwise every new line yanks them back to
     // bottom and old lines look like they "go blank" because the scroll
     // jumps before the eye can track them.
     var rawLogStickyBottom = true;
@@ -2291,9 +2314,9 @@
           if (rule.expected) setExpectedCallout(rule.expected, rule.phase);
           if (rule.hit) hitExpectation(rule.hit);
           if (rule.stage === 'done') markAllPhasesDone();
-          // fcall is the WebKit→native handoff: parent main thread is about
+          // fcall is the WebKit-to-native handoff: parent main thread is about
           // to freeze with the iframe. Flip the strip into freeze-imminent
-          // mode so phases 3–5 visibly look queued (amber, staggered pulse)
+          // mode so phases 3-5 visibly look queued (amber, staggered pulse)
           // instead of inert gray during the freeze the user is about to
           // see. Done synchronously here so it lands in the brief paint
           // window before WebKit actually pauses.
@@ -2374,7 +2397,7 @@
       if (!row || row.classList.contains('hit')) return;
       row.classList.add('hit');
       var badge = row.querySelector('.expectation-badge');
-      if (badge) badge.textContent = '✓';
+      if (badge) badge.textContent = '\u2713';
     }
 
     function resetExpectations() {
@@ -2476,12 +2499,19 @@
     }
 
     var rawLogScrollPending = false;
+    function shouldForceRawLogAutoscroll() {
+      try {
+        return !doneSignal && localStorage.getItem(RAW_LOG_ACTIVE_KEY) === '1';
+      } catch (e) {
+        return !doneSignal;
+      }
+    }
     function scheduleRawLogScrollToBottom() {
       if (rawLogScrollPending) return;
       rawLogScrollPending = true;
       var run = function() {
         rawLogScrollPending = false;
-        if (!rawLogStickyBottom) return;
+        if (!rawLogStickyBottom && !shouldForceRawLogAutoscroll()) return;
         var el2 = document.getElementById('rawLogScroll');
         if (el2) el2.scrollTop = el2.scrollHeight;
       };
@@ -2516,6 +2546,10 @@
       var el = document.getElementById('rawLogScroll');
       if (!el) return;
       el.addEventListener('scroll', function() {
+        if (shouldForceRawLogAutoscroll()) {
+          rawLogStickyBottom = true;
+          return;
+        }
         var dist = el.scrollHeight - el.scrollTop - el.clientHeight;
         rawLogStickyBottom = dist < 30;
       }, { passive: true });
@@ -2545,7 +2579,7 @@
       } catch (e) {}
     }
 
-    // Thin wrapper so existing UI-event callers ("Starting install with…",
+    // Thin wrapper so existing UI-event callers ("Starting install with...",
     // markDone / markFailed banners, watchdog hints, error promotions) land
     // in the same WebContent log stream as the raw iframe messages, with a
     // [UI] prefix to distinguish them from the iframe's own [Xms] entries.
@@ -2569,6 +2603,10 @@
     } else if (major === 18 && minor >= 4 && (minor < 6 || (minor === 6 && patch <= 2))) {
       supportColor = '#15803d';
       supportText = 'iOS ' + iosVer + ' \u2014 supported';
+      canRun = true;
+    } else if (major === 26 && minor === 1) {
+      supportColor = '#b45309';
+      supportText = 'iOS ' + iosVer + (forcedIosVer ? ' forced; UA ' + (uaIosVer || 'unknown') : '') + ' \u2014 26.1 chain';
       canRun = true;
     } else {
       supportColor = '#b91c1c';
@@ -2884,6 +2922,7 @@
 
     // Auto-show kill Safari prompt if a previous chain run left dirty state
     try {
+      if (isLocalVPhone()) sessionStorage.removeItem('ls_running');
       if (sessionStorage.getItem('ls_running')) {
         showKillSafari();
       }
@@ -3142,6 +3181,10 @@
     }
 
     function showKillSafari() {
+      if (isLocalVPhone()) {
+        try { sessionStorage.removeItem('ls_running'); } catch (e) {}
+        return;
+      }
       var btn = document.getElementById('runBtn');
       if (btn && canRun) {
         btn.className = 'btn btn-run';
@@ -3179,7 +3222,7 @@
       if (installStatusEl) {
         // This block is the one bit of running-state copy guaranteed to
         // paint before the WebKit freeze, so it has to carry the freeze
-        // warning itself — the in-log Expected callout may not get a chance
+        // warning itself - the in-log Expected callout may not get a chance
         // to render once fcall hits. The styled .running card (pulsing dot,
         // bold title, muted subtitle) makes the line the primary attention
         // anchor while the chain works.
@@ -3188,7 +3231,7 @@
           '<span class="install-status-dot"></span>' +
           '<span class="install-status-body">' +
             '<span class="install-status-title">' + (mode === 'cleanup' ? 'Running cleanup chain &mdash; about 1 minute' : 'Running exploit chain &mdash; about 1 minute') + '</span>' +
-            '<span class="install-status-meta">Page will freeze. Don’t switch apps or lock the phone.</span>' +
+            '<span class="install-status-meta">Page will freeze. Do not switch apps or lock the phone.</span>' +
           '</span>';
       }
       var btn = document.getElementById('runBtn');
@@ -3221,7 +3264,7 @@
       if (stageBanner) { stageBanner.classList.remove('done'); stageBanner.classList.remove('err'); }
       if (stageText) stageText.textContent = 'Starting exploit chain';
       if (stageSub) stageSub.textContent = 'Loading components...';
-      // Hide the static "What to expect" panel during a run — the phase
+      // Hide the static "What to expect" panel during a run - the phase
       // strip and Expected callout cover that information in-context.
       var runExpEl = document.getElementById('runExpectations');
       if (runExpEl) runExpEl.classList.add('hidden');
@@ -3244,7 +3287,7 @@
         } else {
           markDone('Expected run window elapsed. If Safari froze and crashed to the home screen, wait a few seconds and check the home screen for your tweaks.');
         }
-      }, 90000);
+      }, isLocalVPhone() ? 240000 : 90000);
 
       // Force a layout flush on the status + button text writes above so
       // the browser sees them as committed style changes before we yield.
@@ -3278,7 +3321,13 @@
           + '&speedster_jitter=' + encodeURIComponent(sbc.speedster_jitter || 0)
           + '&speedster_wake=' + encodeURIComponent(sbc.speedster_wake || 0);
         var frame = document.createElement('iframe');
-        frame.src = 'frame.html?mode=' + encodeURIComponent(mode) + '&tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + '&_=' + Math.random();
+        var iosOverrideParam = forcedIosVer ? '&ios=' + encodeURIComponent(forcedIosVer) : '';
+        var sbx0OnlyParam = '';
+        try {
+          var topParams = new URLSearchParams(location.search || '');
+          if (topParams.get('sbx0_only') === '1' || topParams.get('sbx0_only') === 'true' || (isLocalVPhone() && topParams.get('full_chain') !== '1')) sbx0OnlyParam = '&sbx0_only=1';
+        } catch (e) {}
+        frame.src = 'frame.html?mode=' + encodeURIComponent(mode) + '&tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + iosOverrideParam + sbx0OnlyParam + '&_=' + Math.random();
         frame.style.width = '1px';
         frame.style.height = '1px';
         frame.style.opacity = '0.01';
@@ -3288,6 +3337,19 @@
         document.body.appendChild(frame);
       }, 0);
     }
+
+    try {
+      var __autorunParams = new URLSearchParams(location.search || '');
+      var __autorun = (__autorunParams.get('autorun') || '').toLowerCase();
+      if (!__autorun && isLocalVPhone()) __autorun = '1';
+      if (canRun && (__autorun === '1' || __autorun === 'true' || __autorun === 'install' || __autorun === 'cleanup')) {
+        setTimeout(function() {
+          var mode = (__autorun === 'cleanup') ? 'cleanup' : 'install';
+          try { sessionStorage.removeItem('ls_running'); } catch (e) {}
+          runExploit(['fiveicon'], 'heavy', null, '', '', mode);
+        }, 700);
+      }
+    } catch (e) {}
 
   </script>
 </body>

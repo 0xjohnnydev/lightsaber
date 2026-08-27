@@ -1,6 +1,6 @@
 {
-  "repoName": "zeroxjf",
-  "author": "zeroxjf",
+  "repoName": "0xjohnnydev",
+  "author": "0xjohnnydev",
   "tweaks": [
     {
       "id": "lightsaber.hide-dock",
@@ -8,7 +8,7 @@
       "description": "Hides the dock background on the home screen. Warning: this also hides any app icons placed in the dock — move them to the home screen grid before applying. Respring to restore.",
       "version": "1.0.4",
       "author": "@MinePlayer16",
-      "scriptURL": "https://zeroxjf.github.io/lightsaber/hide_dock.js"
+      "scriptURL": "https://0xjohnnydev.github.io/lightsaber/hide_dock.js"
     }
   ]
 }

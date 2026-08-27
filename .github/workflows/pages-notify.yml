@@ -17,7 +17,7 @@ jobs:
         with:
           script: |
             const sha = context.payload.workflow_run.head_sha.substring(0, 7);
-            const body = `Pages deployed successfully.\n\nCommit: \`${sha}\`\nURL: https://zeroxjf.github.io/lightsaber/`;
+            const body = `Pages deployed successfully.\n\nCommit: \`${sha}\`\nURL: https://0xjohnnydev.github.io/lightsaber/`;
 
             // Find or create a pinned notification issue
             const issues = await github.rest.issues.listForRepo({
