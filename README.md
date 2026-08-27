@@ -18,21 +18,21 @@ Every arm64e iPhone (A12 - A18 Pro) running iOS 18.4 - 18.6.2.
 
 ## Roadmap
 
-> **To do**
->
-> - [ ] Improve chain reliability and reproducibility
-> - [ ] Add offsets to support more iOS 18.x versions
-> - [ ] Get StatBar functional (data reporting works but UI display hits nonstop PAC violations)
-> - [ ] Resolve compatibility issues with Nugget and similar tools
+**To do**
 
-> **Done**
->
-> - [x] Full WebContent RCE → kernel R/W → sandbox escape chain
-> - [x] SBCustomizer (dock icons, home grid columns/rows, hide labels)
-> - [x] Powercuff battery saver (4 throttle levels via thermalmonitord)
-> - [x] Multi-tweak picker with single chain execution
-> - [x] Support for every arm64e iPhone on iOS 18.4 - 18.6.2
-> - [x] #cloutfarmed
+- [ ] Improve chain reliability and reproducibility
+- [ ] Add offsets to support more iOS 18.x versions
+- [ ] Get StatBar functional (data reporting works but UI display hits nonstop PAC violations)
+- [ ] Resolve compatibility issues with Nugget and similar tools
+
+**Done**
+
+- [x] Full WebContent RCE → kernel R/W → sandbox escape chain
+- [x] SBCustomizer (dock icons, home grid columns/rows, hide labels)
+- [x] Powercuff battery saver (4 throttle levels via thermalmonitord)
+- [x] Multi-tweak picker with single chain execution
+- [x] Support for every arm64e iPhone on iOS 18.4 - 18.6.2
+- [x] #cloutfarmed
 
 ## How it works
 
