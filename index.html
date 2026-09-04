@@ -1770,11 +1770,11 @@
       <p style="font-size:0.7rem;color:var(--faint);margin-bottom:10px">iPhone &middot; iOS 18.4&ndash;18.6.2</p>
 
       <div class="ota-export-card">
-        <strong>Original OTA disabled.plist</strong>
+        <strong>Original disabled.plist</strong>
         Copies the source bytes without modification to <code>/private/var/mobile/Media/Downloads/disabled.plist.original</code>.
       </div>
 
-      <!-- Temporarily hidden while LightSaber exposes only the OTA export action. -->
+      <!-- Temporarily hidden while LightSaber exposes only the disabled.plist export action. -->
       <div class="tweak-list">
         <div class="tweak-section-label">SpringBoard</div>
         <div class="tweak-row" id="tweakRowFiveicon">
@@ -1994,7 +1994,7 @@
       </div>
 
       <div class="install-zone">
-        <button id="runBtn" class="btn btn-run" onclick="runOtaExport()">Export Original OTA Plist</button>
+        <button id="runBtn" class="btn btn-run" onclick="runOtaExport()">Export Original disabled.plist</button>
         <div class="install-secondary-actions">
           <button type="button" class="btn-clear-queue" id="cleanupStateBtn" onclick="confirmCleanupState()">Clean kernel state</button>
           <button type="button" class="btn btn-respring" id="respringBtn" onclick="runRespring()">Respring</button>
@@ -3101,7 +3101,7 @@
       }
       var btn = document.getElementById('runBtn');
       if (btn && canRun) {
-        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Original OTA Plist' : 'Install Selected';
+        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Original disabled.plist' : 'Install Selected';
         btn.className = 'btn btn-run';
       }
     }
@@ -3259,7 +3259,7 @@
       var btn = document.getElementById('runBtn');
       if (btn && canRun) {
         btn.className = 'btn btn-run';
-        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Original OTA Plist' : 'Install Selected';
+        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Original disabled.plist' : 'Install Selected';
       }
       document.getElementById('killSafariOverlay').className = 'overlay active';
     }
@@ -3321,7 +3321,7 @@
         installStatusEl.innerHTML =
           '<span class="install-status-dot"></span>' +
           '<span class="install-status-body">' +
-            '<span class="install-status-title">' + (OTA_EXPORT_ONLY_UI ? 'Exporting original OTA plist &mdash; about 1 minute' : (mode === 'cleanup' ? 'Running cleanup chain &mdash; about 1 minute' : 'Running exploit chain &mdash; about 1 minute')) + '</span>' +
+            '<span class="install-status-title">' + (OTA_EXPORT_ONLY_UI ? 'Exporting original disabled.plist &mdash; about 1 minute' : (mode === 'cleanup' ? 'Running cleanup chain &mdash; about 1 minute' : 'Running exploit chain &mdash; about 1 minute')) + '</span>' +
             '<span class="install-status-meta">Page will freeze. Do not switch apps or lock the phone.</span>' +
           '</span>';
       }
@@ -3362,7 +3362,7 @@
       var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass', statbar: 'StatBar' };
       var displayTweaks = tweaks.map(function(t) { return tweakDisplayNames[t] || t; });
       rawLogAppend('[UI] WebContent log armed', 'ok');
-      logAppend(mode === 'cleanup' ? 'Starting cleanup-only run' : (exportOtaDisabled && displayTweaks.length === 0 ? 'Starting read-only OTA disabled.plist export' : 'Starting install with: ' + displayTweaks.join(', ')), 'ok');
+      logAppend(mode === 'cleanup' ? 'Starting cleanup-only run' : (exportOtaDisabled && displayTweaks.length === 0 ? 'Starting read-only disabled.plist export' : 'Starting install with: ' + displayTweaks.join(', ')), 'ok');
       startLogWatchdog();
       scrollToLog();
 
