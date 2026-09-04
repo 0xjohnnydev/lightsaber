@@ -253,7 +253,12 @@ self[1] = boxed_arr;
           let t0 = Date.now();
           let xhr = new XMLHttpRequest();
           xhr.open("GET", `${url}` , false);
+          xhr.setRequestHeader("Cache-Control", "no-cache");
+          xhr.setRequestHeader("Pragma", "no-cache");
           xhr.send(null);
+          if (xhr.status < 200 || xhr.status >= 300) {
+              throw new Error("HTTP " + xhr.status + " for " + url);
+          }
           let elapsed = Date.now() - t0;
           print("Loaded " + shortName + " (" + (xhr.responseText ? xhr.responseText.length : 0) + " bytes, " + elapsed + "ms)");
           return xhr.responseText;
@@ -682,8 +687,9 @@ self[1] = boxed_arr;
         }
 	      case 'setup_fcall':
 	        {
-	          try { globalThis.__ls_run_mode = (data.ls_run_mode === 'cleanup') ? 'cleanup' : 'install'; } catch (e) { globalThis.__ls_run_mode = 'install'; }
-	          try { globalThis.__ls_tweaks = (typeof data.ls_tweaks === 'string' && data.ls_tweaks.length > 0) ? data.ls_tweaks : 'fiveicon'; } catch (e) { globalThis.__ls_tweaks = 'fiveicon'; }
+		          try { globalThis.__ls_run_mode = (data.ls_run_mode === 'cleanup') ? 'cleanup' : 'install'; } catch (e) { globalThis.__ls_run_mode = 'install'; }
+		          try { globalThis.__ls_tweaks = (typeof data.ls_tweaks === 'string' && data.ls_tweaks.length > 0) ? data.ls_tweaks : 'fiveicon'; } catch (e) { globalThis.__ls_tweaks = 'fiveicon'; }
+		          try { globalThis.__ls_export_ota_disabled = (data.ls_export_ota_disabled === true); } catch (e) { globalThis.__ls_export_ota_disabled = false; }
           try { globalThis.__powercuff_level = (typeof data.ls_powercuff_level === 'string' && data.ls_powercuff_level.length > 0) ? data.ls_powercuff_level : 'heavy'; } catch (e) { globalThis.__powercuff_level = 'heavy'; }
           try { globalThis.__sbc_dock_icons = (typeof data.ls_sbc_dock_icons === 'number') ? data.ls_sbc_dock_icons : 4; } catch (e) { globalThis.__sbc_dock_icons = 4; }
           try { globalThis.__sbc_hs_cols = (typeof data.ls_sbc_hs_cols === 'number') ? data.ls_sbc_hs_cols : 4; } catch (e) { globalThis.__sbc_hs_cols = 4; }

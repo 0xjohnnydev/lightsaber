@@ -9,9 +9,11 @@ Dependencies (macOS):
 
 Usage: python3 syslog.py [output_file]
   output_file defaults to lightsaber-logs/syslog_<timestamp>.txt
+  Set LIGHTSABER_UDID to select one device when several are connected.
   Ctrl+C to stop.
 """
 
+import os
 import re
 import signal
 import subprocess
@@ -32,7 +34,9 @@ RESET = "\033[0m"
 #   sbx1_main  -> [SBX1]       (via print -> syslog)
 #   sbcustomizer -> [SBC]      (via Native.callSymbol("syslog"))
 #   powercuff  -> [POWERCUFF]  (via Native.callSymbol("syslog"))
-#   pe_main embedded payloads  -> [PE], [THREEAPP], [THREEAPP-AUDIT],
+#   pe_main embedded payloads  -> [PE-*], [KRW-*] (including
+#                                 [KRW-PERSIST]), [OTA-EXPORT],
+#                                 [THREEAPP], [THREEAPP-AUDIT],
 #                                 [SAFARI-CLEAN],
 #                                 [FILE-DL], [HTTP-UPLOAD], [APP], [ICLOUD],
 #                                 [KEYCHAIN], [WIFI], [FILE-DL-EARLY]
@@ -43,7 +47,8 @@ RESET = "\033[0m"
 # from an injected JSC context. Those tags are included here just in case,
 # but the real fix is to switch pe_main to syslog() like sbcustomizer does.
 CHAIN_TAGS = re.compile(
-    r'\[PE\]|\[PE-DBG\]|\[SBX1\]|\[SBC\]|\[POWERCUFF\]|\[CHAIN-OVL\]|'
+    r'\[PE(?:-[A-Z0-9]+)*\]|\[KRW(?:-[A-Z0-9]+)*\]|\[OTA-EXPORT\]|'
+    r'\[SBX1\]|\[SBC\]|\[POWERCUFF\]|\[CHAIN-OVL\]|'
     r'\[FILE-DL\]|\[FILE-DL-EARLY\]|\[HTTP-UPLOAD\]|'
     r'\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]|'
     r'\[MG\]|\[MPD\]|\[APPLIMIT\]|'
@@ -52,13 +57,14 @@ CHAIN_TAGS = re.compile(
     r'MIG_FILTER_BYPASS |INJECTJS |CHAIN |DRIVER-POSTEXPL |DRIVER-NEWTHREAD |'
     r'DARKSWORD-WIFI-DUMP |INFO |OFFSETS |FILE-UTILS |'
     r'PORTRIGHTINSERTER |REGISTERSSTRUCT |REMOTECALL |'
-    r'TASK(?:ROP)? |THREAD |VM |MAIN |EXCEPTION |SANDBOX |'
+    r'TASK(?:ROP)? |THREAD |\bVM |MAIN |EXCEPTION |SANDBOX |'
     r'PAC (?:diagnostics|ptrs|gadget)|UTILS '
 )
 
 # --- Interesting patterns (colored) ---
 INTERESTING_PATTERNS = [
-    (re.compile(r'\[PE\]|\[PE-DBG\]|kernel_base|kernel_slide', re.IGNORECASE), GREEN),
+    (re.compile(r'\[KRW-PERSIST\]', re.IGNORECASE), YELLOW),
+    (re.compile(r'\[PE(?:-[A-Z0-9]+)*\]|\[KRW(?:-[A-Z0-9]+)*\]|\[OTA-EXPORT\]|kernel_base|kernel_slide', re.IGNORECASE), GREEN),
     (re.compile(r'\[SBX1\]|SBX0|SBX1|sbx0:|sbx1:', re.IGNORECASE), MAGENTA),
     (re.compile(r'\[SBC\]|\[POWERCUFF\]|\[CHAIN-OVL\]|\[MG\]|\[APPLIMIT\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]', re.IGNORECASE), CYAN),
     (re.compile(r'\[FILE-DL\]|\[HTTP-UPLOAD\]|\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]', re.IGNORECASE), CYAN),
@@ -154,13 +160,23 @@ def main():
         print("idevice_id timed out. Is usbmuxd running? Try replugging the device.")
         sys.exit(1)
 
-    if not ids.stdout.strip():
+    connected_ids = set(ids.stdout.split())
+    if not connected_ids:
         print("No iPhone detected. Plug in via USB, unlock the device, and tap 'Trust this computer'.")
         sys.exit(1)
 
+    device_udid = os.environ.get("LIGHTSABER_UDID", "").strip()
+    if device_udid and device_udid not in connected_ids:
+        print(f"Requested iPhone is not connected: {device_udid}")
+        sys.exit(1)
+
+    syslog_command = ["idevicesyslog"]
+    if device_udid:
+        syslog_command.extend(["-u", device_udid])
+
     try:
         proc = subprocess.Popen(
-            ["idevicesyslog"],
+            syslog_command,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -171,6 +187,8 @@ def main():
         sys.exit(1)
 
     outfile = open(outpath, "w")
+    target = device_udid or "first connected device"
+    print(f"[syslog] Target {target}")
     print(f"[syslog] PID {proc.pid} -> {outpath}")
     print(f"[syslog] Ctrl+C to stop\n")
 

@@ -1695,9 +1695,38 @@
     }
     .tweak-row-notes a { color: var(--muted); }
     .tweak-row-notes strong { color: var(--muted); font-weight: 600; }
+    .ota-export-card {
+      margin: 12px 0 16px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 0.75rem;
+      line-height: 1.55;
+    }
+    .ota-export-card strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text);
+      font-size: 0.88rem;
+    }
+    body.ota-export-only #cyanideBanner,
+    body.ota-export-only .tweak-list,
+    body.ota-export-only .install-secondary-actions,
+    body.ota-export-only #runExpectations,
+    body.ota-export-only .log-sheet-clear,
+    body.ota-export-only details.debug,
+    body.ota-export-only details.disclaimer,
+    body.ota-export-only details.caution,
+    body.ota-export-only details.warning,
+    body.ota-export-only .legacy-credits,
+    body.ota-export-only .version {
+      display: none !important;
+    }
   </style>
 </head>
-<body>
+<body class="ota-export-only">
   <a id="cyanideBanner" class="cyanide-banner" href="https://github.com/0xjohnnydev/cyanide" target="_blank" rel="noopener" aria-label="LightSaber is moving to Cyanide">
     <span class="cyanide-banner-pulse" aria-hidden="true"></span>
     <span class="cyanide-banner-copy">
@@ -1740,6 +1769,12 @@
       <p id="supportMsg" style="font-size:0.78rem;margin-bottom:4px"></p>
       <p style="font-size:0.7rem;color:var(--faint);margin-bottom:10px">iPhone &middot; iOS 18.4&ndash;18.6.2</p>
 
+      <div class="ota-export-card">
+        <strong>Original OTA disabled.plist</strong>
+        Copies the source bytes without modification to <code>/private/var/mobile/Media/Downloads/disabled.plist.original</code>.
+      </div>
+
+      <!-- Temporarily hidden while LightSaber exposes only the OTA export action. -->
       <div class="tweak-list">
         <div class="tweak-section-label">SpringBoard</div>
         <div class="tweak-row" id="tweakRowFiveicon">
@@ -1959,7 +1994,7 @@
       </div>
 
       <div class="install-zone">
-        <button id="runBtn" class="btn btn-run" onclick="confirmInstall()">Install Queue</button>
+        <button id="runBtn" class="btn btn-run" onclick="runOtaExport()">Export Original OTA Plist</button>
         <div class="install-secondary-actions">
           <button type="button" class="btn-clear-queue" id="cleanupStateBtn" onclick="confirmCleanupState()">Clean kernel state</button>
           <button type="button" class="btn btn-respring" id="respringBtn" onclick="runRespring()">Respring</button>
@@ -2047,7 +2082,7 @@
       </div>
     </details>
 
-    <div style="margin-top:8px;font-size:0.72rem;color:var(--subtle);line-height:1.7">
+    <div class="legacy-credits" style="margin-top:8px;font-size:0.72rem;color:var(--subtle);line-height:1.7">
       <div style="font-family:var(--mono);font-size:0.6rem;font-weight:600;color:var(--faint);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px">Credits</div>
       <a href="https://iverify.io/blog/darksword-ios-exploit-kit-explained">iVerify</a> &amp; <a href="https://cloud.google.com/blog/topics/threat-intelligence/darksword-ios-exploit-chain">Google GTIG</a> &mdash; DarkSword chain documentation<br>
       <a href="https://github.com/leminlimez/Nugget">leminlimez</a> &mdash; Nugget (MobileGestalt + BookRestore)<br>
@@ -2069,6 +2104,7 @@
     <div class="tweak-sheet-body" id="tweakSheetBody"></div>
   </div>
 
+  <!-- Cyanide migration overlay disabled.
   <div id="introOverlay" class="overlay">
     <div class="dialog intro">
       <h2>LightSaber is moving to Cyanide</h2>
@@ -2088,6 +2124,7 @@
       </div>
     </div>
   </div>
+  -->
 
   <div id="confirmOverlay" class="overlay">
     <div class="dialog">
@@ -2134,6 +2171,8 @@
   </div>
 
   <script>
+    const OTA_EXPORT_ONLY_UI = true;
+
     // Force the page to start at the top on every load, even if Safari
     // tries to restore the previous scroll position from cache. iOS Safari
     // restores scroll position aggressively for back-forward / bfcache
@@ -2154,10 +2193,10 @@
     (function() {
       var dismissed = false;
       try { dismissed = localStorage.getItem('ls_cyanide_notice_dismissed') === '1'; } catch(e) {}
-      if (!dismissed) {
+      if (!OTA_EXPORT_ONLY_UI && !dismissed) {
         var el = document.getElementById('introOverlay');
         if (el) el.className = 'overlay active';
-      } else {
+      } else if (!OTA_EXPORT_ONLY_UI) {
         // Intro already cleared - slide the bookmark prompt in shortly after
         // first paint so it's not the first thing the user sees on load.
         setTimeout(maybeShowBookmarkPrompt, 900);
@@ -2175,6 +2214,7 @@
     // Bookmark prompt: only relevant on iOS Safari, never when running
     // standalone (already added to home screen), and never after dismissal.
     function maybeShowBookmarkPrompt() {
+      if (OTA_EXPORT_ONLY_UI) return;
       var el = document.getElementById('bookmarkPrompt');
       if (!el) return;
       if (!/iPhone|iPad|iPod/.test(navigator.userAgent)) return;
@@ -2920,6 +2960,30 @@
     }
     lsLoadState();
 
+    // Allow a manual-run URL to prefill the requested SBC values without
+    // starting the chain. The user still has to press Install Queue.
+    try {
+      var manualParams = new URLSearchParams(location.search || '');
+      var manualTweaks = (manualParams.get('tweaks') || '').split(',');
+      if (manualTweaks.indexOf('fiveicon') !== -1) {
+        document.getElementById('tweakFiveicon').checked = true;
+      }
+      function applyManualSlider(id, key, min, max) {
+        if (!manualParams.has(key)) return;
+        var el = document.getElementById(id);
+        var n = parseInt(manualParams.get(key), 10);
+        if (!el || !isFinite(n)) return;
+        n = Math.max(min, Math.min(max, n));
+        el.value = String(n);
+        var valueEl = document.getElementById(id + 'Val');
+        if (valueEl) valueEl.textContent = String(n);
+      }
+      applyManualSlider('sbcDockIcons', 'dock_icons', 4, 7);
+      applyManualSlider('sbcHsCols', 'hs_cols', 3, 7);
+      applyManualSlider('sbcHsRows', 'hs_rows', 4, 8);
+      for (var mri = 0; mri < tweakRows.length; mri++) syncTweakRow(tweakRows[mri]);
+    } catch (e) {}
+
     // Auto-show kill Safari prompt if a previous chain run left dirty state
     try {
       if (isLocalVPhone()) sessionStorage.removeItem('ls_running');
@@ -2982,6 +3046,7 @@
     }
 
     function markDone(message) {
+      exploitRunActive = false;
       if (doneSignal) return;
       var cleanupBeforeRespring = respringAfterCleanupPending;
       doneSignal = true;
@@ -3007,7 +3072,7 @@
       }
       var btn = document.getElementById('runBtn');
       if (btn) {
-        btn.textContent = cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed');
+        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Complete' : (cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed'));
         btn.className = 'btn btn-done';
       }
       if (respringAfterCleanupPending) {
@@ -3018,13 +3083,14 @@
     }
 
     function markFailed(message) {
+      exploitRunActive = false;
       if (doneSignal) return;
       doneSignal = true;
       respringAfterCleanupPending = false;
       stopLogWatchdog();
       var text = message || 'Exploit failed. Force-quit Safari and try again.';
       logAppend(text, 'err');
-      setStageError('Install failed');
+      setStageError(OTA_EXPORT_ONLY_UI ? 'Export failed' : 'Install failed');
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
@@ -3035,7 +3101,7 @@
       }
       var btn = document.getElementById('runBtn');
       if (btn && canRun) {
-        btn.textContent = 'Install Selected';
+        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Original OTA Plist' : 'Install Selected';
         btn.className = 'btn btn-run';
       }
     }
@@ -3123,6 +3189,11 @@
     }
     initRespringButton();
 
+    function runOtaExport() {
+      var defaults = { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0, speedster_jitter: 0, speedster_wake: 0 };
+      runExploit([], 'heavy', defaults, '', '', 'install');
+    }
+
     function confirmInstall() {
       if (!canRun) return;
       var sel = gatherSelection();
@@ -3188,7 +3259,7 @@
       var btn = document.getElementById('runBtn');
       if (btn && canRun) {
         btn.className = 'btn btn-run';
-        btn.textContent = 'Install Selected';
+        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Original OTA Plist' : 'Install Selected';
       }
       document.getElementById('killSafariOverlay').className = 'overlay active';
     }
@@ -3197,10 +3268,28 @@
       document.getElementById('killSafariOverlay').className = 'overlay';
     }
 
+    function otaDisabledExportRequested() {
+      if (OTA_EXPORT_ONLY_UI) return true;
+      try {
+        var value = (new URLSearchParams(location.search || '').get('export_ota_disabled') || '').toLowerCase();
+        return value === '1' || value === 'true';
+      } catch (e) {
+        return false;
+      }
+    }
+
+    var exploitRunActive = false;
     function runExploit(tweaks, level, sbc, mg_flags, mg_unflags, mode) {
       if (!canRun) return;
       mode = (mode === 'cleanup') ? 'cleanup' : 'install';
-      if (mode !== 'cleanup' && (!tweaks || tweaks.length === 0)) tweaks = ['fiveicon'];
+      var exportOtaDisabled = otaDisabledExportRequested();
+      if (OTA_EXPORT_ONLY_UI) {
+        mode = 'install';
+        tweaks = [];
+        mg_flags = '';
+        mg_unflags = '';
+      }
+      if (mode !== 'cleanup' && (!tweaks || tweaks.length === 0) && !exportOtaDisabled) tweaks = ['fiveicon'];
       if (mode === 'cleanup') tweaks = [];
       level = level || 'heavy';
       sbc = sbc || { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0, speedster_jitter: 0, speedster_wake: 0 };
@@ -3218,6 +3307,8 @@
         }
         if (mode === 'cleanup') sessionStorage.removeItem('ls_running');
       } catch(e) {}
+      if (exploitRunActive) return;
+      exploitRunActive = true;
       doneSignal = false;
       if (installStatusEl) {
         // This block is the one bit of running-state copy guaranteed to
@@ -3230,14 +3321,14 @@
         installStatusEl.innerHTML =
           '<span class="install-status-dot"></span>' +
           '<span class="install-status-body">' +
-            '<span class="install-status-title">' + (mode === 'cleanup' ? 'Running cleanup chain &mdash; about 1 minute' : 'Running exploit chain &mdash; about 1 minute') + '</span>' +
+            '<span class="install-status-title">' + (OTA_EXPORT_ONLY_UI ? 'Exporting original OTA plist &mdash; about 1 minute' : (mode === 'cleanup' ? 'Running cleanup chain &mdash; about 1 minute' : 'Running exploit chain &mdash; about 1 minute')) + '</span>' +
             '<span class="install-status-meta">Page will freeze. Do not switch apps or lock the phone.</span>' +
           '</span>';
       }
       var btn = document.getElementById('runBtn');
       if (btn) {
         btn.className = 'btn btn-disabled';
-        btn.textContent = mode === 'cleanup' ? 'Cleaning...' : 'Installing...';
+        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Exporting...' : (mode === 'cleanup' ? 'Cleaning...' : 'Installing...');
       }
       // Set the progress card SYNCHRONOUSLY before the iframe is created.
       // iOS Safari shares one WebContent process across the parent page and
@@ -3271,7 +3362,7 @@
       var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass', statbar: 'StatBar' };
       var displayTweaks = tweaks.map(function(t) { return tweakDisplayNames[t] || t; });
       rawLogAppend('[UI] WebContent log armed', 'ok');
-      logAppend(mode === 'cleanup' ? 'Starting cleanup-only run' : 'Starting install with: ' + displayTweaks.join(', '), 'ok');
+      logAppend(mode === 'cleanup' ? 'Starting cleanup-only run' : (exportOtaDisabled && displayTweaks.length === 0 ? 'Starting read-only OTA disabled.plist export' : 'Starting install with: ' + displayTweaks.join(', ')), 'ok');
       startLogWatchdog();
       scrollToLog();
 
@@ -3284,6 +3375,8 @@
       setTimeout(function() {
         if (respringAfterCleanupPending) {
           markDone('Cleanup run window elapsed; starting respring now.');
+        } else if (OTA_EXPORT_ONLY_UI) {
+          markDone('Expected run window elapsed. Check Downloads for disabled.plist.original.');
         } else {
           markDone('Expected run window elapsed. If Safari froze and crashed to the home screen, wait a few seconds and check the home screen for your tweaks.');
         }
@@ -3320,14 +3413,18 @@
           + '&statbar_hide_net=' + encodeURIComponent(sbc.statbar_hide_net || 0)
           + '&speedster_jitter=' + encodeURIComponent(sbc.speedster_jitter || 0)
           + '&speedster_wake=' + encodeURIComponent(sbc.speedster_wake || 0);
+        var oldExploitFrame = document.getElementById('lightsaberExploitFrame');
+        if (oldExploitFrame && oldExploitFrame.parentNode) oldExploitFrame.parentNode.removeChild(oldExploitFrame);
         var frame = document.createElement('iframe');
+        frame.id = 'lightsaberExploitFrame';
         var iosOverrideParam = forcedIosVer ? '&ios=' + encodeURIComponent(forcedIosVer) : '';
         var sbx0OnlyParam = '';
+        var otaExportParam = exportOtaDisabled ? '&export_ota_disabled=1' : '';
         try {
           var topParams = new URLSearchParams(location.search || '');
           if (topParams.get('sbx0_only') === '1' || topParams.get('sbx0_only') === 'true' || (isLocalVPhone() && topParams.get('full_chain') !== '1')) sbx0OnlyParam = '&sbx0_only=1';
         } catch (e) {}
-        frame.src = 'frame.html?mode=' + encodeURIComponent(mode) + '&tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + iosOverrideParam + sbx0OnlyParam + '&_=' + Math.random();
+        frame.src = 'frame.html?mode=' + encodeURIComponent(mode) + '&tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + iosOverrideParam + sbx0OnlyParam + otaExportParam + '&_=' + Math.random();
         frame.style.width = '1px';
         frame.style.height = '1px';
         frame.style.opacity = '0.01';
@@ -3342,11 +3439,36 @@
       var __autorunParams = new URLSearchParams(location.search || '');
       var __autorun = (__autorunParams.get('autorun') || '').toLowerCase();
       if (!__autorun && isLocalVPhone()) __autorun = '1';
-      if (canRun && (__autorun === '1' || __autorun === 'true' || __autorun === 'install' || __autorun === 'cleanup')) {
+      if (!OTA_EXPORT_ONLY_UI && canRun && (__autorun === '1' || __autorun === 'true' || __autorun === 'install' || __autorun === 'cleanup')) {
+        // Consume the URL action before starting. A Safari/WebContent restart
+        // can reload this page, but it must not start a second chain.
+        if (__autorunParams.has('autorun')) {
+          __autorunParams.delete('autorun');
+          var __remainingQuery = __autorunParams.toString();
+          history.replaceState(null, '', location.pathname + (__remainingQuery ? '?' + __remainingQuery : '') + location.hash);
+        }
         setTimeout(function() {
           var mode = (__autorun === 'cleanup') ? 'cleanup' : 'install';
           try { sessionStorage.removeItem('ls_running'); } catch (e) {}
-          runExploit(['fiveicon'], 'heavy', null, '', '', mode);
+          var autorunSbc = {
+            dock_icons: sbcClampInput('sbcDockIcons', 4, 7, parseInt(__autorunParams.get('dock_icons'), 10) || 4),
+            hs_cols: sbcClampInput('sbcHsCols', 3, 7, parseInt(__autorunParams.get('hs_cols'), 10) || 4),
+            hs_rows: sbcClampInput('sbcHsRows', 4, 8, parseInt(__autorunParams.get('hs_rows'), 10) || 6),
+            hide_labels: 0,
+            statbar_celsius: 0,
+            statbar_hide_net: 0,
+            speedster_jitter: 0,
+            speedster_wake: 0
+          };
+          autorunSbc.dock_icons = Math.max(4, Math.min(7, parseInt(__autorunParams.get('dock_icons'), 10) || 4));
+          autorunSbc.hs_cols = Math.max(3, Math.min(7, parseInt(__autorunParams.get('hs_cols'), 10) || 4));
+          autorunSbc.hs_rows = Math.max(4, Math.min(8, parseInt(__autorunParams.get('hs_rows'), 10) || 6));
+          var autorunTweaks = (__autorunParams.get('tweaks') || '').split(',').filter(function(name) {
+            return ['fiveicon', 'powercuff', 'mgpatcher', 'applimit', 'statbar'].indexOf(name) !== -1;
+          });
+          if (OTA_EXPORT_ONLY_UI) autorunTweaks = [];
+          if (autorunTweaks.length === 0 && !otaDisabledExportRequested()) autorunTweaks = ['fiveicon'];
+          runExploit(autorunTweaks, 'heavy', autorunSbc, '', '', mode);
         }, 700);
       }
     } catch (e) {}

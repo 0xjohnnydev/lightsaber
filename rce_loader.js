@@ -24,7 +24,8 @@ try {
             if (__validTweaks[__t] && __tweaksList.indexOf(__t) < 0) __tweaksList.push(__t);
         }
     }
-    if (__tweaksList.length === 0) __tweaksList.push('fiveicon');
+    var __otaOnly = ((__lsParams.get('export_ota_disabled') || '').toLowerCase().trim() === '1' || (__lsParams.get('export_ota_disabled') || '').toLowerCase().trim() === 'true');
+    if (__tweaksList.length === 0) __tweaksList.push(__otaOnly ? 'none' : 'fiveicon');
     globalThis.__ls_tweaks = __tweaksList.join(',');
 } catch (e) { globalThis.__ls_tweaks = 'fiveicon'; }
 try {
@@ -78,6 +79,11 @@ try {
     var __mode = (__lsParams5.get('mode') || 'install').toLowerCase().trim();
     globalThis.__ls_run_mode = (__mode === 'cleanup') ? 'cleanup' : 'install';
 } catch (e) { globalThis.__ls_run_mode = 'install'; }
+try {
+    var __lsParams6 = new URLSearchParams(location.search || '');
+    var __otaExport = (__lsParams6.get('export_ota_disabled') || '').toLowerCase().trim();
+    globalThis.__ls_export_ota_disabled = (__otaExport === '1' || __otaExport === 'true');
+} catch (e) { globalThis.__ls_export_ota_disabled = false; }
 var basePrefix = location.pathname.replace(/\/[^\/]*$/, '');
 if (!basePrefix && location.pathname && location.pathname !== '/' && location.pathname.indexOf('.') < 0) basePrefix = location.pathname;
 var localHost = location.origin + basePrefix;
@@ -152,6 +158,8 @@ function getJS(fname,method = 'GET')
         let t0 = Date.now();
         let xhr = new XMLHttpRequest();
         xhr.open(method, `${url}` , false);
+        xhr.setRequestHeader("Cache-Control", "no-cache");
+        xhr.setRequestHeader("Pragma", "no-cache");
         xhr.send(null);
         let elapsed = Date.now() - t0;
         if (xhr.status < 200 || xhr.status >= 300) {
@@ -306,7 +314,8 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
 	                worker.postMessage({
 	                type: 'setup_fcall',
 	                ls_run_mode: globalThis.__ls_run_mode || 'install',
-	                ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
+		                ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
+		                ls_export_ota_disabled: globalThis.__ls_export_ota_disabled === true,
                 ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy',
                 ls_sbc_dock_icons: globalThis.__ls_sbc_dock_icons,
                 ls_sbc_hs_cols: globalThis.__ls_sbc_hs_cols,
@@ -406,6 +415,7 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
 	                    SERVER_LOG,
 	                    ls_run_mode: globalThis.__ls_run_mode || 'install',
 	                    ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
+	                    ls_export_ota_disabled: globalThis.__ls_export_ota_disabled === true,
                     ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy',
                     ls_sbc_dock_icons: globalThis.__ls_sbc_dock_icons,
                     ls_sbc_hs_cols: globalThis.__ls_sbc_hs_cols,

