@@ -263,6 +263,14 @@
       margin: -6px auto 12px;
     }
     .install-status.error { color: #dc2626; }
+    .install-status.warning {
+      color: #8a4b08;
+      background: #fff7e6;
+      border: 1px solid #f2c879;
+      padding: 10px 12px;
+      border-radius: 12px;
+      text-align: left;
+    }
     /* Running state - stands up the "Running chain (~1 min)" line as the
        primary attention anchor while the chain works. Pulsing dot, bold
        title in accent ink, muted subtitle for the freeze caveat. */
@@ -673,6 +681,7 @@
     }
     .log-stage-banner.done .log-stage-text { color: #0f7a3d; }
     .log-stage-banner.err  .log-stage-text { color: #c41e1e; }
+    .log-stage-banner.warn .log-stage-text { color: #9a5a00; }
     .log-stage-sub {
       font-size: 0.7rem;
       font-weight: 500;
@@ -1719,6 +1728,12 @@
       overflow-wrap: anywhere;
       word-break: break-word;
     }
+    .ota-export-verification-note {
+      display: block;
+      margin-top: 8px;
+      color: var(--subtle);
+      font-size: 0.7rem;
+    }
     body.ota-export-only #cyanideBanner,
     body.ota-export-only .tweak-list,
     body.ota-export-only .install-secondary-actions,
@@ -1780,6 +1795,7 @@
       <div class="ota-export-card">
         <strong>Original disabled.plist</strong>
         Copies the source bytes without modification to <code>/<wbr>private/<wbr>var/<wbr>mobile/<wbr>Media/<wbr>Downloads/<wbr>disabled.plist.original</code>.
+        <span class="ota-export-verification-note">Green means the copied bytes were verified. Amber means Safari could not confirm the final file result, so check Files &gt; Downloads.</span>
       </div>
 
       <!-- Temporarily hidden while LightSaber exposes only the disabled.plist export action. -->
@@ -2267,6 +2283,11 @@
     var major = iosParts[0], minor = iosParts[1], patch = iosParts[2] || 0;
     var isIphone = /iPhone/.test(ua);
     var doneSignal = false;
+    var runOutcome = 'idle';
+    var runReportedError = '';
+    var browserHandoffSeen = false;
+    var runCompletionTimer = null;
+    var activeExploitFrameWindow = null;
     var respringAfterCleanupPending = false;
     var logWatchdog = null;
     var lastLogTime = 0;
@@ -2349,13 +2370,18 @@
           if (rule.stage === currentStage && rule.name === currentStageName) return;
           currentStage = rule.stage;
           currentStageName = rule.name;
+          if (OTA_EXPORT_ONLY_UI && rule.stage === 'done') {
+            markAllPhasesDone();
+            setStageWarning('Final export result pending', 'Safari has not received a verified file result');
+            return;
+          }
           var stageBanner = document.getElementById('logStageBanner');
           var stageText = document.getElementById('logStageText');
           var stageSub = document.getElementById('logStageSub');
           if (stageText) stageText.textContent = rule.name;
           if (stageSub) stageSub.textContent = rule.sub;
           if (stageBanner) {
-            stageBanner.classList.remove('err');
+            stageBanner.classList.remove('err', 'warn');
             stageBanner.classList.toggle('done', rule.stage === 'done');
           }
           if (rule.phase) setPhase(rule.phase);
@@ -2379,12 +2405,27 @@
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
       if (stageBanner) {
-        stageBanner.classList.remove('done');
+        stageBanner.classList.remove('done', 'warn');
         stageBanner.classList.add('err');
       }
       if (stageText) stageText.textContent = msg || 'Something went wrong';
       if (stageSub) stageSub.textContent = 'Check the log below for details';
       markPhaseError();
+      clearExpectedCallout();
+    }
+
+    function setStageWarning(msg, detail) {
+      var stageBanner = document.getElementById('logStageBanner');
+      var stageText = document.getElementById('logStageText');
+      var stageSub = document.getElementById('logStageSub');
+      if (stageBanner) {
+        stageBanner.classList.remove('done', 'err');
+        stageBanner.classList.add('warn');
+      }
+      if (stageText) stageText.textContent = msg || 'Result not confirmed';
+      if (stageSub) stageSub.textContent = detail || 'Check Files > Downloads for disabled.plist.original';
+      var strip = document.getElementById('logPhaseStrip');
+      if (strip) strip.classList.remove('is-frozen');
       clearExpectedCallout();
     }
 
@@ -2502,6 +2543,13 @@
       if (logWatchdog) { clearInterval(logWatchdog); logWatchdog = null; }
     }
 
+    function stopRunCompletionTimer() {
+      if (runCompletionTimer) {
+        clearTimeout(runCompletionTimer);
+        runCompletionTimer = null;
+      }
+    }
+
     // Bring the consolidated WebContent log card precisely to the top of the
     // viewport so the user lands on it the moment the chain starts. Using
     // getBoundingClientRect + window.scrollTo lets us aim the card to a
@@ -2527,10 +2575,15 @@
 
     function classifyRawLogLine(text) {
       var msg = String(text || '').toLowerCase();
+      var otaResult = msg.match(/\[ota-export\]\s+result=([a-z0-9-]+)/);
+      if (otaResult && otaResult[1] === 'success') return 'ok';
+      if (otaResult && otaResult[1] === 'token-failed') return 'note';
+      if (otaResult && otaResult[1] !== 'token-failed') return 'err';
+      if (msg.indexOf('[ota-export] sandbox-token') !== -1 && msg.indexOf('result=failed') !== -1) return 'note';
+      if (msg.indexOf('error') !== -1 || msg.indexOf('exception') !== -1 || msg.indexOf('failed') !== -1) return 'err';
       if (msg.indexOf('safari-clean') !== -1 || msg.indexOf('[pe]') !== -1 || msg.indexOf('[pe-dbg]') !== -1 || msg.indexOf('mediaplaybackd') !== -1) return 'pe';
       if (msg.indexOf('springboard') !== -1 || msg.indexOf('[sbc]') !== -1 || msg.indexOf('sbcustomizer') !== -1 || msg.indexOf('injectjs') !== -1) return 'springboard';
       if (msg.indexOf('sbx0:') !== -1 || msg.indexOf('sbx1:') !== -1 || msg.indexOf('[mpd]') !== -1 || msg.indexOf('[profiler]') !== -1 || msg.indexOf('kernel') !== -1) return 'kernel';
-      if (msg.indexOf('error') !== -1 || msg.indexOf('exception') !== -1 || msg.indexOf('failed') !== -1) return 'err';
       if (msg.indexOf('[ui]') !== -1 || msg.indexOf('worker') !== -1 || msg.indexOf('webcontent') !== -1) return 'device';
       return '';
     }
@@ -3053,22 +3106,28 @@
       return { tweaks: tweaks, level: level, sbc: sbc, mg_flags: mgFlags.join(','), mg_unflags: mgUnflags.join(',') };
     }
 
+    function isFinalRunOutcome() {
+      return runOutcome === 'success' || runOutcome === 'failed';
+    }
+
     function markDone(message) {
+      if (isFinalRunOutcome()) return;
       exploitRunActive = false;
-      if (doneSignal) return;
       var cleanupBeforeRespring = respringAfterCleanupPending;
+      runOutcome = 'success';
       doneSignal = true;
       stopLogWatchdog();
+      stopRunCompletionTimer();
       logAppend(message || (cleanupBeforeRespring ? 'Cleanup complete!' : 'Install complete!'), 'ok');
       var stageBanner = document.getElementById('logStageBanner');
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
       if (stageBanner) {
-        stageBanner.classList.remove('err');
+        stageBanner.classList.remove('err', 'warn');
         stageBanner.classList.add('done');
       }
-      if (stageText) stageText.textContent = cleanupBeforeRespring ? 'Cleanup complete' : (message ? 'Check result' : 'Install complete');
-      if (stageSub) stageSub.textContent = cleanupBeforeRespring ? 'Starting respring' : (message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully');
+      if (stageText) stageText.textContent = OTA_EXPORT_ONLY_UI ? 'Export verified' : (cleanupBeforeRespring ? 'Cleanup complete' : (message ? 'Check result' : 'Install complete'));
+      if (stageSub) stageSub.textContent = OTA_EXPORT_ONLY_UI ? 'Destination bytes match the source' : (cleanupBeforeRespring ? 'Starting respring' : (message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully'));
       markAllPhasesDone();
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '0'); } catch(e) {}
@@ -3080,7 +3139,7 @@
       }
       var btn = document.getElementById('runBtn');
       if (btn) {
-        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Complete' : (cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed'));
+        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Verified' : (cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed'));
         btn.className = 'btn btn-done';
       }
       if (respringAfterCleanupPending) {
@@ -3091,11 +3150,13 @@
     }
 
     function markFailed(message) {
+      if (isFinalRunOutcome()) return;
       exploitRunActive = false;
-      if (doneSignal) return;
+      runOutcome = 'failed';
       doneSignal = true;
       respringAfterCleanupPending = false;
       stopLogWatchdog();
+      stopRunCompletionTimer();
       var text = message || 'Exploit failed. Force-quit Safari and try again.';
       logAppend(text, 'err');
       setStageError(OTA_EXPORT_ONLY_UI ? 'Export failed' : 'Install failed');
@@ -3114,26 +3175,118 @@
       }
     }
 
-    function handleProgressLog(text) {
+    function markUnverified(message) {
+      if (isFinalRunOutcome()) return;
+      exploitRunActive = false;
+      runOutcome = 'unverified';
+      doneSignal = true;
+      respringAfterCleanupPending = false;
+      stopLogWatchdog();
+      stopRunCompletionTimer();
+      var text = message || 'Browser stages ended, but Safari did not receive a verified disabled.plist result.';
+      logAppend(text, 'note');
+      setStageWarning('Result not confirmed', 'Check Files > Downloads for disabled.plist.original');
+      try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+      try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
+      var installStatusEl = document.getElementById('installStatus');
+      if (installStatusEl) {
+        installStatusEl.className = 'install-status warning';
+        installStatusEl.dataset.sbxDone = '';
+        installStatusEl.textContent = 'Safari did not receive a verified export result. Check Files > Downloads for disabled.plist.original. If the file is missing, the export failed.';
+      }
+      var btn = document.getElementById('runBtn');
+      if (btn && canRun) {
+        btn.textContent = 'Export Again';
+        btn.className = 'btn btn-run';
+      }
+    }
+
+    function markBrowserHandoff() {
+      if (isFinalRunOutcome() || runOutcome !== 'running' || browserHandoffSeen) return;
+      browserHandoffSeen = true;
+      stopLogWatchdog();
+      logAppend('Browser stages completed. Waiting for the final export result.', 'device');
+      if (runReportedError) {
+        setStageError('Error reported');
+      } else {
+        setStageWarning('Final result pending', 'Safari has not received a verified file result');
+      }
+    }
+
+    var otaExportFailureMessages = {
+      'missing': 'Source disabled.plist does not exist.',
+      'source-open-failed': 'Could not open the source disabled.plist.',
+      'source-size-failed': 'Could not read the source plist size.',
+      'empty': 'Source disabled.plist is empty.',
+      'source-too-large': 'Source disabled.plist exceeds the safe export limit.',
+      'source-seek-failed': 'Could not seek to the start of the source plist.',
+      'source-buffer-failed': 'Could not allocate the source read buffer.',
+      'short-read': 'Could not read the complete source plist.',
+      'launchd-task-unavailable': 'The launchd task needed for the destination was unavailable.',
+      'launchd-buffer-failed': 'Could not prepare the destination write buffer.',
+      'destination-path-write-failed': 'Could not prepare the Downloads destination path.',
+      'destination-open-failed': 'Could not open the Downloads destination.',
+      'short-write': 'Could not write the complete destination file.',
+      'verify-open-failed': 'Could not reopen the exported file for verification.',
+      'verify-size-failed': 'The exported file size did not match the source.',
+      'verify-buffer-failed': 'Could not allocate the export verification buffer.',
+      'verify-content-failed': 'The exported file contents did not match the source.',
+      'exception': 'The export raised an exception.'
+    };
+
+    function handleOtaExportResult(text) {
+      if (!OTA_EXPORT_ONLY_UI) return false;
+      var match = String(text || '').match(/\[OTA-EXPORT\]\s+result=([a-z0-9-]+)/i);
+      if (!match || match[1].toLowerCase() === 'token-failed') return false;
+      var result = match[1].toLowerCase();
+      if (result === 'success') {
+        var bytesMatch = String(text).match(/\bbytes=(\d+)/i);
+        var byteCount = bytesMatch ? bytesMatch[1] : 'unknown';
+        markDone('Export verified: ' + byteCount + ' bytes copied and matched.');
+        return true;
+      }
+      var reason = otaExportFailureMessages[result] || ('Export failed with result "' + result + '".');
+      var errnoMatch = String(text).match(/\berrno=(-?\d+)/i);
+      if (errnoMatch) reason += ' errno=' + errnoMatch[1] + '.';
+      markFailed(reason + ' Result: ' + result + '.');
+      return true;
+    }
+
+    function handleProgressLog(text, reportError) {
       if (!text || typeof text !== 'string') return;
       lastLogText = text;
       lastLogTime = Date.now();
       watchdogTicks = 0;
       rawLogAppend(text, classifyRawLogLine(text));
+      if (handleOtaExportResult(text)) return;
+      if (isFinalRunOutcome()) return;
       updateStage(text);
-      // Error detection - show errors in the log since the user needs to see them
       var lower = text.toLowerCase();
-      if ((lower.indexOf('error') !== -1 || lower.indexOf('exception') !== -1 || lower.indexOf('fetch failed') !== -1) && lower.indexOf('reporterror') === -1) {
-        logAppend('Error: ' + text.replace(/^\[[^\]]*\]\s*/, ''), 'err');
+      var cleanText = text.replace(/^\[[^\]]*\]\s*/, '');
+      var recoverableTokenWarning = lower.indexOf('[ota-export] result=token-failed') !== -1 ||
+        (lower.indexOf('[ota-export] sandbox-token') !== -1 && lower.indexOf('result=failed') !== -1);
+      if (reportError === true) {
+        runReportedError = cleanText;
+        logAppend('Error: ' + cleanText, 'err');
+        setStageError('Error reported');
+        return;
+      }
+      // Promote explicit error text even when an older sender did not set reportError.
+      if (!recoverableTokenWarning && (lower.indexOf('error') !== -1 || lower.indexOf('exception') !== -1 || lower.indexOf('fetch failed') !== -1) && lower.indexOf('reporterror') === -1) {
+        logAppend('Error: ' + cleanText, 'err');
         setStageError('Error encountered');
       }
     }
 
     window.addEventListener('message', function(event) {
+      if (!activeExploitFrameWindow || event.source !== activeExploitFrameWindow) return;
       var data = event.data || {};
-      if (data.type === 'lightsaber_done') markDone();
+      if (data.type === 'lightsaber_done') {
+        if (OTA_EXPORT_ONLY_UI) markBrowserHandoff();
+        else markDone();
+      }
       if (data.type === 'lightsaber_failed' || data.type === 'lightsaber_error') markFailed(data.reason || data.text);
-      if (data.type === 'lightsaber_log') handleProgressLog(data.text);
+      if (data.type === 'lightsaber_log') handleProgressLog(data.text, data.reportError === true);
     });
 
     function isIPhoneUserAgent() {
@@ -3317,6 +3470,11 @@
       } catch(e) {}
       if (exploitRunActive) return;
       exploitRunActive = true;
+      stopRunCompletionTimer();
+      runOutcome = 'running';
+      runReportedError = '';
+      browserHandoffSeen = false;
+      activeExploitFrameWindow = null;
       doneSignal = false;
       if (installStatusEl) {
         // This block is the one bit of running-state copy guaranteed to
@@ -3360,7 +3518,7 @@
       var stageBanner = document.getElementById('logStageBanner');
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
-      if (stageBanner) { stageBanner.classList.remove('done'); stageBanner.classList.remove('err'); }
+      if (stageBanner) stageBanner.classList.remove('done', 'err', 'warn');
       if (stageText) stageText.textContent = 'Starting exploit chain';
       if (stageSub) stageSub.textContent = 'Loading components...';
       // Hide the static "What to expect" panel during a run - the phase
@@ -3374,17 +3532,21 @@
       startLogWatchdog();
       scrollToLog();
 
-      // Match the upstream DarkSword install button: just a 60-second
-      // setTimeout fallback plus a postMessage listener for the iframe's
-      // explicit "lightsaber_done" signal. No active contentWindow polling -
-      // iOS Safari's cross-origin / detached-frame access semantics aren't
-      // reliable across versions, and the upstream chain expects the user to
-      // notice that "Safari froze/crashed/reloaded means it worked" anyway.
-      setTimeout(function() {
+      // The timer ends the visible run window. It must not claim that the
+      // export succeeded: only an explicit, byte-verified OTA result can do
+      // that. A browser handoff without that result remains unconfirmed.
+      runCompletionTimer = setTimeout(function() {
+        runCompletionTimer = null;
         if (respringAfterCleanupPending) {
           markDone('Cleanup run window elapsed; starting respring now.');
         } else if (OTA_EXPORT_ONLY_UI) {
-          markDone('Expected run window elapsed. Check Downloads for disabled.plist.original.');
+          if (runReportedError) {
+            markFailed('The browser reported an error: ' + runReportedError);
+          } else if (!browserHandoffSeen) {
+            markUnverified('No browser completion signal or verified export result arrived before the run timed out.');
+          } else {
+            markUnverified('Browser stages completed, but no verified disabled.plist result reached this page.');
+          }
         } else {
           markDone('Expected run window elapsed. If Safari froze and crashed to the home screen, wait a few seconds and check the home screen for your tweaks.');
         }
@@ -3439,7 +3601,11 @@
         frame.style.position = 'absolute';
         frame.style.left = '-9999px';
         frame.style.border = 'none';
+        frame.onerror = function() {
+          if (frame.contentWindow === activeExploitFrameWindow) markFailed('Could not load the exploit frame.');
+        };
         document.body.appendChild(frame);
+        activeExploitFrameWindow = frame.contentWindow;
       }, 0);
     }
 
