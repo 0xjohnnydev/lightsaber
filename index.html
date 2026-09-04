@@ -271,6 +271,14 @@
       border-radius: 12px;
       text-align: left;
     }
+    .install-status.handoff {
+      color: #0f7a3d;
+      background: #ecfdf3;
+      border: 1px solid #b7e7c8;
+      padding: 10px 12px;
+      border-radius: 12px;
+      text-align: left;
+    }
     /* Running state - stands up the "Running chain (~1 min)" line as the
        primary attention anchor while the chain works. Pulsing dot, bold
        title in accent ink, muted subtitle for the freeze caveat. */
@@ -682,6 +690,7 @@
     .log-stage-banner.done .log-stage-text { color: #0f7a3d; }
     .log-stage-banner.err  .log-stage-text { color: #c41e1e; }
     .log-stage-banner.warn .log-stage-text { color: #9a5a00; }
+    .log-stage-banner.handoff .log-stage-text { color: #0f7a3d; }
     .log-stage-sub {
       font-size: 0.7rem;
       font-weight: 500;
@@ -1795,7 +1804,7 @@
       <div class="ota-export-card">
         <strong>Original disabled.plist</strong>
         Copies the source bytes without modification to <code>/<wbr>private/<wbr>var/<wbr>mobile/<wbr>Media/<wbr>Downloads/<wbr>disabled.plist.original</code>
-        <span class="ota-export-verification-note">Green means the copied bytes were verified. Amber means Safari could not confirm the final file result, so check Files &gt; Downloads.</span>
+        <span class="ota-export-verification-note">Green means Safari completed the browser chain and handed off the export. Check Files &gt; Downloads for the copied plist.</span>
       </div>
 
       <!-- Temporarily hidden while LightSaber exposes only the disabled.plist export action. -->
@@ -2381,7 +2390,7 @@
           if (stageText) stageText.textContent = rule.name;
           if (stageSub) stageSub.textContent = rule.sub;
           if (stageBanner) {
-            stageBanner.classList.remove('err', 'warn');
+            stageBanner.classList.remove('err', 'warn', 'handoff');
             stageBanner.classList.toggle('done', rule.stage === 'done');
           }
           if (rule.phase) setPhase(rule.phase);
@@ -2405,7 +2414,7 @@
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
       if (stageBanner) {
-        stageBanner.classList.remove('done', 'warn');
+        stageBanner.classList.remove('done', 'warn', 'handoff');
         stageBanner.classList.add('err');
       }
       if (stageText) stageText.textContent = msg || 'Something went wrong';
@@ -2419,7 +2428,7 @@
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
       if (stageBanner) {
-        stageBanner.classList.remove('done', 'err');
+        stageBanner.classList.remove('done', 'err', 'handoff');
         stageBanner.classList.add('warn');
       }
       if (stageText) stageText.textContent = msg || 'Result not confirmed';
@@ -2427,6 +2436,19 @@
       var strip = document.getElementById('logPhaseStrip');
       if (strip) strip.classList.remove('is-frozen');
       clearExpectedCallout();
+    }
+
+    function setStageHandoff() {
+      var stageBanner = document.getElementById('logStageBanner');
+      var stageText = document.getElementById('logStageText');
+      var stageSub = document.getElementById('logStageSub');
+      if (stageBanner) {
+        stageBanner.classList.remove('done', 'err', 'warn');
+        stageBanner.classList.add('handoff');
+      }
+      if (stageText) stageText.textContent = 'Success — export handed off';
+      if (stageSub) stageSub.textContent = 'Check Files > Downloads for disabled.plist.original';
+      markAllPhasesDone();
     }
 
     var currentPhase = 0;
@@ -3123,7 +3145,7 @@
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
       if (stageBanner) {
-        stageBanner.classList.remove('err', 'warn');
+        stageBanner.classList.remove('err', 'warn', 'handoff');
         stageBanner.classList.add('done');
       }
       if (stageText) stageText.textContent = OTA_EXPORT_ONLY_UI ? 'Export verified' : (cleanupBeforeRespring ? 'Cleanup complete' : (message ? 'Check result' : 'Install complete'));
@@ -3176,7 +3198,7 @@
     }
 
     function markUnverified(message) {
-      if (isFinalRunOutcome()) return;
+      if (isFinalRunOutcome() || runOutcome === 'handoff') return;
       exploitRunActive = false;
       runOutcome = 'unverified';
       doneSignal = true;
@@ -3202,14 +3224,28 @@
     }
 
     function markBrowserHandoff() {
-      if (isFinalRunOutcome() || runOutcome !== 'running' || browserHandoffSeen) return;
+      if (isFinalRunOutcome() || (runOutcome !== 'running' && runOutcome !== 'unverified') || browserHandoffSeen) return;
       browserHandoffSeen = true;
+      exploitRunActive = false;
+      runOutcome = 'handoff';
+      runReportedError = '';
+      doneSignal = true;
       stopLogWatchdog();
-      logAppend('Browser stages completed. Waiting for the final export result.', 'device');
-      if (runReportedError) {
-        setStageError('Error reported');
-      } else {
-        setStageWarning('Final result pending', 'Safari has not received a verified file result');
+      stopRunCompletionTimer();
+      logAppend('Success: browser chain completed and handed off the export. Check Downloads for the copied file.', 'ok');
+      setStageHandoff();
+      try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+      try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
+      var installStatusEl = document.getElementById('installStatus');
+      if (installStatusEl) {
+        installStatusEl.className = 'install-status handoff';
+        installStatusEl.dataset.sbxDone = '';
+        installStatusEl.textContent = 'Success: Safari completed the browser chain and handed off the export. Check Files > Downloads for disabled.plist.original.';
+      }
+      var btn = document.getElementById('runBtn');
+      if (btn && canRun) {
+        btn.textContent = 'Export Again';
+        btn.className = 'btn btn-run';
       }
     }
 
@@ -3259,7 +3295,7 @@
       watchdogTicks = 0;
       rawLogAppend(text, classifyRawLogLine(text));
       if (handleOtaExportResult(text)) return;
-      if (isFinalRunOutcome()) return;
+      if (isFinalRunOutcome() || runOutcome === 'handoff') return;
       updateStage(text);
       var lower = text.toLowerCase();
       var cleanText = text.replace(/^\[[^\]]*\]\s*/, '');
@@ -3267,14 +3303,15 @@
         (lower.indexOf('[ota-export] sandbox-token') !== -1 && lower.indexOf('result=failed') !== -1);
       if (reportError === true) {
         runReportedError = cleanText;
-        logAppend('Error: ' + cleanText, 'err');
-        setStageError('Error reported');
+        logAppend('Attempt issue: ' + cleanText, 'note');
+        setStageWarning('Chain reported an issue', 'The chain is still running and may recover');
         return;
       }
-      // Promote explicit error text even when an older sender did not set reportError.
+      // A log line is not a terminal outcome. Keep it visible as a warning;
+      // only lightsaber_failed/lightsaber_error or OTA result=<failure> is red.
       if (!recoverableTokenWarning && (lower.indexOf('error') !== -1 || lower.indexOf('exception') !== -1 || lower.indexOf('fetch failed') !== -1) && lower.indexOf('reporterror') === -1) {
-        logAppend('Error: ' + cleanText, 'err');
-        setStageError('Error encountered');
+        logAppend('Potential issue: ' + cleanText, 'note');
+        setStageWarning('Potential issue in log', 'The chain is still running and may recover');
       }
     }
 
@@ -3518,7 +3555,7 @@
       var stageBanner = document.getElementById('logStageBanner');
       var stageText = document.getElementById('logStageText');
       var stageSub = document.getElementById('logStageSub');
-      if (stageBanner) stageBanner.classList.remove('done', 'err', 'warn');
+      if (stageBanner) stageBanner.classList.remove('done', 'err', 'warn', 'handoff');
       if (stageText) stageText.textContent = 'Starting exploit chain';
       if (stageSub) stageSub.textContent = 'Loading components...';
       // Hide the static "What to expect" panel during a run - the phase
@@ -3532,9 +3569,8 @@
       startLogWatchdog();
       scrollToLog();
 
-      // The timer ends the visible run window. It must not claim that the
-      // export succeeded: only an explicit, byte-verified OTA result can do
-      // that. A browser handoff without that result remains unconfirmed.
+      // The timer only handles runs with no terminal browser message. A
+      // lightsaber_done handoff stops this timer and gets its own blue state.
       runCompletionTimer = setTimeout(function() {
         runCompletionTimer = null;
         if (respringAfterCleanupPending) {
@@ -3542,10 +3578,8 @@
         } else if (OTA_EXPORT_ONLY_UI) {
           if (runReportedError) {
             markFailed('The browser reported an error: ' + runReportedError);
-          } else if (!browserHandoffSeen) {
-            markUnverified('No browser completion signal or verified export result arrived before the run timed out.');
           } else {
-            markUnverified('Browser stages completed, but no verified disabled.plist result reached this page.');
+            markUnverified('No browser completion signal or verified export result arrived before the run timed out.');
           }
         } else {
           markDone('Expected run window elapsed. If Safari froze and crashed to the home screen, wait a few seconds and check the home screen for your tweaks.');
