@@ -686,6 +686,17 @@
       letter-spacing: -0.02em;
       text-align: left;
     }
+    .log-sheet-heading {
+      flex: 1;
+      min-width: 0;
+    }
+    .log-sheet-note {
+      display: block;
+      margin-top: 2px;
+      color: var(--subtle);
+      font-size: 0.62rem;
+      line-height: 1.35;
+    }
     /* Stage banner sits in the same card-alt block as the phase strip - no
        border between them so they read as one cohesive header. The phase
        strip's pulsing active bar replaces the old standalone status dot. */
@@ -957,8 +968,9 @@
        terminal styling on the scroll itself contrasts with the white card,
        so the raw stream reads like a console panel embedded in the card. */
     #rawLogScroll {
-      max-height: min(320px, 44dvh);
+      height: clamp(300px, 58dvh, 720px);
       overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain;
       padding: 8px 12px;
       background: #1a1a1c;
@@ -1760,7 +1772,6 @@
     body.ota-export-only .tweak-list,
     body.ota-export-only .install-secondary-actions,
     body.ota-export-only #runExpectations,
-    body.ota-export-only .log-sheet-clear,
     body.ota-export-only details.debug,
     body.ota-export-only details.disclaimer,
     body.ota-export-only details.caution,
@@ -2050,6 +2061,18 @@
         </div>
       </div>
       <div id="installStatus" class="install-status" role="status" aria-live="polite"></div>
+      <div class="log-sheet" id="logSheet">
+        <div class="log-sheet-header">
+          <div class="log-sheet-heading">
+            <div class="log-sheet-title">WebContent Log</div>
+            <span class="log-sheet-note">Shows all browser-side messages received before WebKit freezes.</span>
+          </div>
+          <button type="button" class="log-sheet-clear" onclick="clearRawLogView()">Clear</button>
+        </div>
+        <div id="rawLogScroll" role="log" aria-live="polite" aria-relevant="additions">
+          <div class="raw-log-empty" id="rawLogEmpty">WebContent log lines will appear here when a run starts.</div>
+        </div>
+      </div>
       <div class="run-expectations" id="runExpectations">
         <div class="run-expectations-title">What to expect when you press Install</div>
         <div class="expectation-list">
@@ -2293,7 +2316,9 @@
     var currentStageName = '';
     var RAW_LOG_STORE_KEY = 'ls_raw_log_lines_v1';
     var RAW_LOG_ACTIVE_KEY = 'ls_raw_log_active_v1';
-    var RAW_LOG_STORE_LIMIT = 260;
+    // The current DOM stays uncapped. Keep a larger bounded tail across a
+    // Safari reload without risking the browser's localStorage quota.
+    var RAW_LOG_STORE_LIMIT = 1000;
     // Sticky-bottom behavior: autoscroll on each new line ONLY while the
     // user is already pinned at (or near) the bottom of the scroll. As soon
     // as they scroll up to read history, autoscroll pauses so we don't
@@ -2599,7 +2624,9 @@
 
     function rawLogStoreLine(text, cls) {
       try {
-        if (localStorage.getItem(RAW_LOG_ACTIVE_KEY) !== '1') return;
+        // Continue retaining late messages after a successful handoff. The
+        // active key only marks whether a reload interrupted the last run.
+        if (runOutcome === 'idle' && localStorage.getItem(RAW_LOG_ACTIVE_KEY) !== '1') return;
         var lines = JSON.parse(localStorage.getItem(RAW_LOG_STORE_KEY) || '[]');
         if (!lines || typeof lines.length !== 'number') lines = [];
         lines.push({ text: String(text), cls: cls || '' });
@@ -2679,10 +2706,12 @@
 
     function restoreRawLogView() {
       try {
-        if (localStorage.getItem(RAW_LOG_ACTIVE_KEY) !== '1') return;
+        var wasInterrupted = localStorage.getItem(RAW_LOG_ACTIVE_KEY) === '1';
         var lines = JSON.parse(localStorage.getItem(RAW_LOG_STORE_KEY) || '[]');
         if (!lines || !lines.length) return;
-        rawLogAppend('[UI] Previous run was interrupted. Last WebContent log follows:', 'device', true);
+        rawLogAppend(wasInterrupted ?
+          '[UI] Previous run was interrupted. Last WebContent log follows:' :
+          '[UI] Last WebContent log follows:', 'device', true);
         for (var i = 0; i < lines.length; i++) {
           rawLogAppend(lines[i].text, lines[i].cls || '', true);
         }
