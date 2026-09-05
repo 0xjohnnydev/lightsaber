@@ -25,7 +25,8 @@ try {
         }
     }
     var __otaOnly = ((__lsParams.get('export_ota_disabled') || '').toLowerCase().trim() === '1' || (__lsParams.get('export_ota_disabled') || '').toLowerCase().trim() === 'true');
-    if (__tweaksList.length === 0) __tweaksList.push(__otaOnly ? 'none' : 'fiveicon');
+    var __restoreOnly = ((__lsParams.get('restore_disabled_plist') || '').toLowerCase().trim() === '1' || (__lsParams.get('restore_disabled_plist') || '').toLowerCase().trim() === 'true');
+    if (__tweaksList.length === 0) __tweaksList.push((__otaOnly || __restoreOnly) ? 'none' : 'fiveicon');
     globalThis.__ls_tweaks = __tweaksList.join(',');
 } catch (e) { globalThis.__ls_tweaks = 'fiveicon'; }
 try {
@@ -84,6 +85,11 @@ try {
     var __otaExport = (__lsParams6.get('export_ota_disabled') || '').toLowerCase().trim();
     globalThis.__ls_export_ota_disabled = (__otaExport === '1' || __otaExport === 'true');
 } catch (e) { globalThis.__ls_export_ota_disabled = false; }
+try {
+    var __lsParams7 = new URLSearchParams(location.search || '');
+    var __plistRestore = (__lsParams7.get('restore_disabled_plist') || '').toLowerCase().trim();
+    globalThis.__ls_restore_disabled_plist = (__plistRestore === '1' || __plistRestore === 'true');
+} catch (e) { globalThis.__ls_restore_disabled_plist = false; }
 var basePrefix = location.pathname.replace(/\/[^\/]*$/, '');
 if (!basePrefix && location.pathname && location.pathname !== '/' && location.pathname.indexOf('.') < 0) basePrefix = location.pathname;
 var localHost = location.origin + basePrefix;
@@ -316,6 +322,7 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
 	                ls_run_mode: globalThis.__ls_run_mode || 'install',
 		                ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
 		                ls_export_ota_disabled: globalThis.__ls_export_ota_disabled === true,
+		                ls_restore_disabled_plist: globalThis.__ls_restore_disabled_plist === true,
                 ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy',
                 ls_sbc_dock_icons: globalThis.__ls_sbc_dock_icons,
                 ls_sbc_hs_cols: globalThis.__ls_sbc_hs_cols,
@@ -416,6 +423,7 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
 	                    ls_run_mode: globalThis.__ls_run_mode || 'install',
 	                    ls_tweaks: globalThis.__ls_tweaks || 'fiveicon',
 	                    ls_export_ota_disabled: globalThis.__ls_export_ota_disabled === true,
+	                    ls_restore_disabled_plist: globalThis.__ls_restore_disabled_plist === true,
                     ls_powercuff_level: globalThis.__ls_powercuff_level || 'heavy',
                     ls_sbc_dock_icons: globalThis.__ls_sbc_dock_icons,
                     ls_sbc_hs_cols: globalThis.__ls_sbc_hs_cols,

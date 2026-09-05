@@ -6849,14 +6849,15 @@
       pe_stage1_js_data = gpuCopyBuffer(read64(addrof(pe_stage1_js_data_array) + 0x10n), BigInt(pe_stage1_js_data_array.length));
 	      let pe_main_js_str = getJS('pe_main.js?' + Date.now());
 	      let lsOtaExport = globalThis.__ls_export_ota_disabled === true;
-	      const requiredPeRevision = "20260904.8";
+	      let lsPlistRestore = globalThis.__ls_restore_disabled_plist === true;
+	      const requiredPeRevision = "20260904.9";
 	      const requiredPeMarker = 'const LS_PE_PAYLOAD_REVISION = "' + requiredPeRevision + '";';
 	      if (typeof pe_main_js_str !== 'string' || pe_main_js_str.indexOf(requiredPeMarker) < 0) {
 	        LOG("[MPD] PE payload revision mismatch; refusing launch expected=" + requiredPeRevision + " bytes=" + (pe_main_js_str ? pe_main_js_str.length : 0));
 	        return false;
 	      }
-	      LOG("[MPD] PE payload verified revision=" + requiredPeRevision + " bytes=" + pe_main_js_str.length + " ota=" + lsOtaExport);
-	      let lsTweaksRaw = (typeof globalThis.__ls_tweaks === 'string' && globalThis.__ls_tweaks.length > 0) ? globalThis.__ls_tweaks : (lsOtaExport ? 'none' : 'fiveicon');
+	      LOG("[MPD] PE payload verified revision=" + requiredPeRevision + " bytes=" + pe_main_js_str.length + " export=" + lsOtaExport + " restore=" + lsPlistRestore);
+	      let lsTweaksRaw = (typeof globalThis.__ls_tweaks === 'string' && globalThis.__ls_tweaks.length > 0) ? globalThis.__ls_tweaks : ((lsOtaExport || lsPlistRestore) ? 'none' : 'fiveicon');
       let validTweaks = { fiveicon: 1, powercuff: 1, mgpatcher: 1, applimit: 1, statbar: 1, speedster: 1 };
       let lsTweakSet = {};
       let lsTweakParts = lsTweaksRaw.split(',');
@@ -6868,7 +6869,7 @@
       let lsRunMode = (globalThis.__ls_run_mode === 'cleanup') ? 'cleanup' : 'install';
       if (lsRunMode === 'cleanup') {
         lsTweakSet = { fiveicon: false, powercuff: false, mgpatcher: false, applimit: false, statbar: false, speedster: false };
-	      } else if (!lsOtaExport && !lsTweakSet.fiveicon && !lsTweakSet.powercuff && !lsTweakSet.mgpatcher && !lsTweakSet.applimit && !lsTweakSet.statbar && !lsTweakSet.speedster) {
+	      } else if (!lsOtaExport && !lsPlistRestore && !lsTweakSet.fiveicon && !lsTweakSet.powercuff && !lsTweakSet.mgpatcher && !lsTweakSet.applimit && !lsTweakSet.statbar && !lsTweakSet.speedster) {
         lsTweakSet.fiveicon = true; // safe default
       }
       let lsLevelRaw = (typeof globalThis.__powercuff_level === 'string') ? globalThis.__powercuff_level : 'heavy';
@@ -6926,6 +6927,7 @@
       prelude += 'globalThis.__ls_enable_statbar = ' + (lsTweakSet.statbar ? 'true' : 'false') + ';\n';
 	      prelude += 'globalThis.__ls_enable_speedster = ' + (lsTweakSet.speedster ? 'true' : 'false') + ';\n';
 	      prelude += 'globalThis.__ls_export_ota_disabled = ' + (lsOtaExport ? 'true' : 'false') + ';\n';
+	      prelude += 'globalThis.__ls_restore_disabled_plist = ' + (lsPlistRestore ? 'true' : 'false') + ';\n';
       let taMode = (typeof globalThis.__mgpatcher_mode === 'string' && globalThis.__mgpatcher_mode === 'revert') ? 'revert' : 'enable';
       prelude += 'globalThis.__mgpatcher_mode = "' + taMode + '";\n';
       let mgFlags = (typeof globalThis.__mg_flags === 'string') ? globalThis.__mg_flags : '';

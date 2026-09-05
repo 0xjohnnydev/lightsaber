@@ -205,6 +205,17 @@
       border-color: var(--accent-hover);
       box-shadow: 0 2px 4px rgba(10,15,28,0.08), 0 14px 30px -8px rgba(45,169,255,0.65);
     }
+    .btn-restore {
+      background: #a51016;
+      color: #fff;
+      border-color: #a51016;
+      box-shadow: 0 1px 2px rgba(10,15,28,0.06), 0 10px 24px -8px rgba(165,16,22,0.45);
+    }
+    .btn-restore:hover {
+      background: #8f0d13;
+      border-color: #8f0d13;
+      box-shadow: 0 2px 4px rgba(10,15,28,0.08), 0 14px 30px -8px rgba(165,16,22,0.55);
+    }
     .btn-clear-queue {
       background: none;
       border: none;
@@ -241,8 +252,10 @@
       display: flex;
       flex-direction: column;
       align-items: center;
+      gap: 10px;
       margin: 18px 0;
     }
+    .install-zone > .btn { width: min(100%, 360px); }
     .install-secondary-actions {
       display: flex;
       align-items: center;
@@ -1802,12 +1815,13 @@
       <p style="font-size:0.7rem;color:var(--faint);margin-bottom:10px">iPhone &middot; iOS 18.4&ndash;18.6.2</p>
 
       <div class="ota-export-card">
-        <strong>Original disabled.plist</strong>
-        Copies the source bytes without modification to <code>/<wbr>private/<wbr>var/<wbr>mobile/<wbr>Media/<wbr>Downloads/<wbr>disabled.plist.original</code>
-        <span class="ota-export-verification-note">Green means Safari completed the browser chain and handed off the export. Check Files &gt; Downloads for the copied plist.</span>
+        <strong>disabled.plist backup and restore</strong>
+        Export copies the source bytes without modification to <code>/<wbr>private/<wbr>var/<wbr>mobile/<wbr>Media/<wbr>Downloads/<wbr>disabled.plist.original</code>
+        Restore replaces the source with the verified 897-byte stock snapshot for iPhone17,2 on build 22G100 only. It first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
+        <span class="ota-export-verification-note">A restore needs a reboot before launchd fully uses the stock file.</span>
       </div>
 
-      <!-- Temporarily hidden while LightSaber exposes only the disabled.plist export action. -->
+      <!-- Temporarily hidden while LightSaber exposes only disabled.plist actions. -->
       <div class="tweak-list">
         <div class="tweak-section-label">SpringBoard</div>
         <div class="tweak-row" id="tweakRowFiveicon">
@@ -2028,6 +2042,7 @@
 
       <div class="install-zone">
         <button id="runBtn" class="btn btn-run" onclick="runOtaExport()">Export Original disabled.plist</button>
+        <button id="restoreBtn" class="btn btn-restore" onclick="runDisabledPlistRestore()">Restore Stock disabled.plist</button>
         <div class="install-secondary-actions">
           <button type="button" class="btn-clear-queue" id="cleanupStateBtn" onclick="confirmCleanupState()">Clean kernel state</button>
           <button type="button" class="btn btn-respring" id="respringBtn" onclick="runRespring()">Respring</button>
@@ -2205,6 +2220,7 @@
 
   <script>
     const OTA_EXPORT_ONLY_UI = true;
+    var requestedPlistAction = '';
 
     // Force the page to start at the top on every load, even if Safari
     // tries to restore the previous scroll position from cache. iOS Safari
@@ -2740,10 +2756,16 @@
     supportMsg.textContent = supportText;
 
     var runBtn = document.getElementById('runBtn');
+    var restoreBtn = document.getElementById('restoreBtn');
     if (!canRun) {
       runBtn.className = 'btn btn-disabled';
       runBtn.textContent = 'Not available';
       runBtn.onclick = null;
+      if (restoreBtn) {
+        restoreBtn.className = 'btn btn-disabled';
+        restoreBtn.textContent = 'Not available';
+        restoreBtn.onclick = null;
+      }
     }
 
     // Wire tweak rows. Each row has two independent interactive areas in its
@@ -3136,6 +3158,7 @@
       if (isFinalRunOutcome()) return;
       exploitRunActive = false;
       var cleanupBeforeRespring = respringAfterCleanupPending;
+      var restoreAction = disabledPlistRestoreRequested();
       runOutcome = 'success';
       doneSignal = true;
       stopLogWatchdog();
@@ -3148,8 +3171,8 @@
         stageBanner.classList.remove('err', 'warn', 'handoff');
         stageBanner.classList.add('done');
       }
-      if (stageText) stageText.textContent = OTA_EXPORT_ONLY_UI ? 'Export verified' : (cleanupBeforeRespring ? 'Cleanup complete' : (message ? 'Check result' : 'Install complete'));
-      if (stageSub) stageSub.textContent = OTA_EXPORT_ONLY_UI ? 'Destination bytes match the source' : (cleanupBeforeRespring ? 'Starting respring' : (message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully'));
+      if (stageText) stageText.textContent = OTA_EXPORT_ONLY_UI ? (restoreAction ? 'Restore verified' : 'Export verified') : (cleanupBeforeRespring ? 'Cleanup complete' : (message ? 'Check result' : 'Install complete'));
+      if (stageSub) stageSub.textContent = OTA_EXPORT_ONLY_UI ? (restoreAction ? 'Source bytes match the stock snapshot' : 'Destination bytes match the source') : (cleanupBeforeRespring ? 'Starting respring' : (message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully'));
       markAllPhasesDone();
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '0'); } catch(e) {}
@@ -3159,9 +3182,10 @@
         installStatusEl.textContent = '';
         installStatusEl.dataset.sbxDone = '';
       }
-      var btn = document.getElementById('runBtn');
+      if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
+      var btn = activeRunButton();
       if (btn) {
-        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Verified' : (cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed'));
+        btn.textContent = OTA_EXPORT_ONLY_UI ? (restoreAction ? 'Restore Verified' : 'Export Verified') : (cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed'));
         btn.className = 'btn btn-done';
       }
       if (respringAfterCleanupPending) {
@@ -3181,7 +3205,7 @@
       stopRunCompletionTimer();
       var text = message || 'Exploit failed. Force-quit Safari and try again.';
       logAppend(text, 'err');
-      setStageError(OTA_EXPORT_ONLY_UI ? 'Export failed' : 'Install failed');
+      setStageError(OTA_EXPORT_ONLY_UI ? (disabledPlistRestoreRequested() ? 'Restore failed' : 'Export failed') : 'Install failed');
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
@@ -3190,9 +3214,10 @@
         installStatusEl.dataset.sbxDone = '';
         installStatusEl.textContent = text;
       }
-      var btn = document.getElementById('runBtn');
-      if (btn && canRun) {
-        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Original disabled.plist' : 'Install Selected';
+      if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
+      var btn = activeRunButton();
+      if (btn && canRun && !OTA_EXPORT_ONLY_UI) {
+        btn.textContent = 'Install Selected';
         btn.className = 'btn btn-run';
       }
     }
@@ -3205,22 +3230,19 @@
       respringAfterCleanupPending = false;
       stopLogWatchdog();
       stopRunCompletionTimer();
-      var text = message || 'Browser stages ended, but Safari did not receive a verified disabled.plist result.';
+      var restoreAction = disabledPlistRestoreRequested();
+      var text = message || (restoreAction ? 'Browser stages ended, but Safari did not receive a verified restore result.' : 'Browser stages ended, but Safari did not receive a verified disabled.plist result.');
       logAppend(text, 'note');
-      setStageWarning('Result not confirmed', 'Check Files > Downloads for disabled.plist.original');
+      setStageWarning('Result not confirmed', restoreAction ? 'Check syslog for [PLIST-RESTORE] result=' : 'Check Files > Downloads for disabled.plist.original');
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
         installStatusEl.className = 'install-status warning';
         installStatusEl.dataset.sbxDone = '';
-        installStatusEl.textContent = 'Safari did not receive a verified export result. Check Files > Downloads for disabled.plist.original. If the file is missing, the export failed.';
+        installStatusEl.textContent = restoreAction ? 'Safari did not receive a verified restore result. Check syslog for [PLIST-RESTORE] result= before rebooting.' : 'Safari did not receive a verified export result. Check Files > Downloads for disabled.plist.original. If the file is missing, the export failed.';
       }
-      var btn = document.getElementById('runBtn');
-      if (btn && canRun) {
-        btn.textContent = 'Export Again';
-        btn.className = 'btn btn-run';
-      }
+      if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
     }
 
     function markBrowserHandoff() {
@@ -3232,7 +3254,8 @@
       doneSignal = true;
       stopLogWatchdog();
       stopRunCompletionTimer();
-      logAppend('Success: browser chain completed and handed off the export. Check Downloads for the copied file.', 'ok');
+      var restoreAction = disabledPlistRestoreRequested();
+      logAppend(restoreAction ? 'Success: browser chain completed and handed off the restore. Check syslog for the verified result before rebooting.' : 'Success: browser chain completed and handed off the export. Check Downloads for the copied file.', 'ok');
       setStageHandoff();
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
@@ -3240,13 +3263,9 @@
       if (installStatusEl) {
         installStatusEl.className = 'install-status handoff';
         installStatusEl.dataset.sbxDone = '';
-        installStatusEl.textContent = 'Success: Safari completed the browser chain and handed off the export. Check Files > Downloads for disabled.plist.original.';
+        installStatusEl.textContent = restoreAction ? 'Success: Safari completed the browser chain and handed off the restore. Confirm [PLIST-RESTORE] result=success in syslog, then reboot.' : 'Success: Safari completed the browser chain and handed off the export. Check Files > Downloads for disabled.plist.original.';
       }
-      var btn = document.getElementById('runBtn');
-      if (btn && canRun) {
-        btn.textContent = 'Export Again';
-        btn.className = 'btn btn-run';
-      }
+      if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
     }
 
     var otaExportFailureMessages = {
@@ -3270,8 +3289,62 @@
       'exception': 'The export raised an exception.'
     };
 
+    var plistRestoreFailureMessages = {
+      'unsupported-target': 'The stock snapshot does not match this device model and build.',
+      'conflicting-actions': 'Export and restore were requested together.',
+      'missing': 'Source disabled.plist does not exist. Nothing was created.',
+      'source-open-failed': 'Could not open the source disabled.plist.',
+      'source-size-failed': 'Could not read the source plist size.',
+      'empty': 'Source disabled.plist is empty. Nothing was replaced.',
+      'source-too-large': 'Source disabled.plist exceeds the restore safety limit.',
+      'source-seek-failed': 'Could not seek to the start of the source plist.',
+      'source-short-read': 'Could not read the complete source plist.',
+      'launchd-task-unavailable': 'The launchd task needed for the restore was unavailable.',
+      'embedded-stock-invalid': 'The embedded stock snapshot failed its size check.',
+      'local-stock-buffer-failed': 'Could not prepare the local stock snapshot buffer.',
+      'remote-stock-buffer-failed': 'Could not prepare the launchd stock snapshot buffer.',
+      'remote-verify-buffer-failed': 'Could not prepare restore verification buffers.',
+      'path-buffer-failed': 'Could not prepare the restore paths.',
+      'backup-open-failed': 'Could not create the pre-restore backup in Downloads.',
+      'backup-write-failed': 'Could not write the complete pre-restore backup.',
+      'stage-open-failed': 'Could not create the atomic staging file.',
+      'stage-write-failed': 'Could not write the complete stock staging file.',
+      'stage-metadata-failed': 'Could not preserve the source file metadata on the staging file.',
+      'stage-fsync-failed': 'Could not sync the stock staging file.',
+      'rename-failed': 'Could not atomically replace the source plist.',
+      'exception': 'The restore raised an exception.'
+    };
+
+    function handleDisabledPlistRestoreResult(text) {
+      if (!OTA_EXPORT_ONLY_UI || !disabledPlistRestoreRequested()) return false;
+      var match = String(text || '').match(/\[PLIST-RESTORE\]\s+result=([a-z0-9-]+)/i);
+      if (!match) return false;
+      var result = match[1].toLowerCase();
+      if (result === 'success') {
+        var bytesMatch = String(text).match(/\bbytes=(\d+)/i);
+        var backupMatch = String(text).match(/\bbackup=([^\s]+)/i);
+        var byteCount = bytesMatch ? bytesMatch[1] : '897';
+        var backupPath = backupMatch ? backupMatch[1] : 'Files > Downloads';
+        markDone('Restore verified: ' + byteCount + ' stock bytes installed. Backup: ' + backupPath + '. Reboot to apply.');
+        return true;
+      }
+      if (result === 'already-stock') {
+        markDone('disabled.plist already matches the verified stock snapshot. No write was needed.');
+        return true;
+      }
+      var reason = plistRestoreFailureMessages[result];
+      if (!reason && result.indexOf('backup-verify-') === 0) reason = 'The pre-restore backup did not verify. The source was not replaced.';
+      if (!reason && result.indexOf('stage-verify-') === 0) reason = 'The staged stock plist did not verify. The source was not replaced.';
+      if (!reason && result.indexOf('final-verify-') === 0) reason = 'The source replacement completed, but the final byte check failed. Use the logged backup path for recovery.';
+      if (!reason) reason = 'Restore failed with result "' + result + '".';
+      var errnoMatch = String(text).match(/\berrno=(-?\d+)/i);
+      if (errnoMatch) reason += ' errno=' + errnoMatch[1] + '.';
+      markFailed(reason + ' Result: ' + result + '.');
+      return true;
+    }
+
     function handleOtaExportResult(text) {
-      if (!OTA_EXPORT_ONLY_UI) return false;
+      if (!OTA_EXPORT_ONLY_UI || disabledPlistRestoreRequested()) return false;
       var match = String(text || '').match(/\[OTA-EXPORT\]\s+result=([a-z0-9-]+)/i);
       if (!match || match[1].toLowerCase() === 'token-failed') return false;
       var result = match[1].toLowerCase();
@@ -3294,7 +3367,7 @@
       lastLogTime = Date.now();
       watchdogTicks = 0;
       rawLogAppend(text, classifyRawLogLine(text));
-      if (handleOtaExportResult(text)) return;
+      if (handleDisabledPlistRestoreResult(text) || handleOtaExportResult(text)) return;
       if (isFinalRunOutcome() || runOutcome === 'handoff') return;
       updateStage(text);
       var lower = text.toLowerCase();
@@ -3388,6 +3461,15 @@
     initRespringButton();
 
     function runOtaExport() {
+      requestedPlistAction = 'export';
+      var defaults = { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0, speedster_jitter: 0, speedster_wake: 0 };
+      runExploit([], 'heavy', defaults, '', '', 'install');
+    }
+
+    function runDisabledPlistRestore() {
+      if (!canRun) return;
+      if (!confirm('Restore the verified stock disabled.plist for iPhone17,2 on build 22G100? LightSaber will first save the current plist in Files > Downloads. Reboot after a verified restore.')) return;
+      requestedPlistAction = 'restore';
       var defaults = { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0, speedster_jitter: 0, speedster_wake: 0 };
       runExploit([], 'heavy', defaults, '', '', 'install');
     }
@@ -3454,10 +3536,11 @@
         try { sessionStorage.removeItem('ls_running'); } catch (e) {}
         return;
       }
-      var btn = document.getElementById('runBtn');
-      if (btn && canRun) {
+      if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
+      var btn = activeRunButton();
+      if (btn && canRun && !OTA_EXPORT_ONLY_UI) {
         btn.className = 'btn btn-run';
-        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Export Original disabled.plist' : 'Install Selected';
+        btn.textContent = 'Install Selected';
       }
       document.getElementById('killSafariOverlay').className = 'overlay active';
     }
@@ -3466,14 +3549,52 @@
       document.getElementById('killSafariOverlay').className = 'overlay';
     }
 
-    function otaDisabledExportRequested() {
-      if (OTA_EXPORT_ONLY_UI) return true;
+    function urlActionRequested(name) {
       try {
-        var value = (new URLSearchParams(location.search || '').get('export_ota_disabled') || '').toLowerCase();
+        var value = (new URLSearchParams(location.search || '').get(name) || '').toLowerCase();
         return value === '1' || value === 'true';
       } catch (e) {
         return false;
       }
+    }
+
+    function disabledPlistRestoreRequested() {
+      if (requestedPlistAction) return requestedPlistAction === 'restore';
+      return urlActionRequested('restore_disabled_plist');
+    }
+
+    function otaDisabledExportRequested() {
+      if (requestedPlistAction) return requestedPlistAction === 'export';
+      if (disabledPlistRestoreRequested()) return false;
+      return OTA_EXPORT_ONLY_UI || urlActionRequested('export_ota_disabled');
+    }
+
+    function activeRunButton() {
+      return document.getElementById(disabledPlistRestoreRequested() ? 'restoreBtn' : 'runBtn');
+    }
+
+    function resetPlistActionButtons() {
+      if (!canRun) return;
+      var exportBtn = document.getElementById('runBtn');
+      var restoreBtn = document.getElementById('restoreBtn');
+      if (exportBtn) {
+        exportBtn.className = 'btn btn-run';
+        exportBtn.textContent = 'Export Original disabled.plist';
+      }
+      if (restoreBtn) {
+        restoreBtn.className = 'btn btn-restore';
+        restoreBtn.textContent = 'Restore Stock disabled.plist';
+      }
+    }
+
+    function setPlistActionButtonsRunning() {
+      var exportBtn = document.getElementById('runBtn');
+      var restoreBtn = document.getElementById('restoreBtn');
+      if (exportBtn) exportBtn.className = 'btn btn-disabled';
+      if (restoreBtn) restoreBtn.className = 'btn btn-disabled';
+      var activeBtn = activeRunButton();
+      if (activeBtn) activeBtn.textContent = disabledPlistRestoreRequested() ? 'Restoring...' : 'Exporting...';
+      return activeBtn;
     }
 
     var exploitRunActive = false;
@@ -3481,13 +3602,14 @@
       if (!canRun) return;
       mode = (mode === 'cleanup') ? 'cleanup' : 'install';
       var exportOtaDisabled = otaDisabledExportRequested();
+      var restoreDisabledPlist = disabledPlistRestoreRequested();
       if (OTA_EXPORT_ONLY_UI) {
         mode = 'install';
         tweaks = [];
         mg_flags = '';
         mg_unflags = '';
       }
-      if (mode !== 'cleanup' && (!tweaks || tweaks.length === 0) && !exportOtaDisabled) tweaks = ['fiveicon'];
+      if (mode !== 'cleanup' && (!tweaks || tweaks.length === 0) && !exportOtaDisabled && !restoreDisabledPlist) tweaks = ['fiveicon'];
       if (mode === 'cleanup') tweaks = [];
       level = level || 'heavy';
       sbc = sbc || { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0, speedster_jitter: 0, speedster_wake: 0 };
@@ -3524,14 +3646,14 @@
         installStatusEl.innerHTML =
           '<span class="install-status-dot"></span>' +
           '<span class="install-status-body">' +
-            '<span class="install-status-title">' + (OTA_EXPORT_ONLY_UI ? 'Exporting original disabled.plist &mdash; about 1 minute' : (mode === 'cleanup' ? 'Running cleanup chain &mdash; about 1 minute' : 'Running exploit chain &mdash; about 1 minute')) + '</span>' +
+            '<span class="install-status-title">' + (OTA_EXPORT_ONLY_UI ? (restoreDisabledPlist ? 'Restoring stock disabled.plist &mdash; about 1 minute' : 'Exporting original disabled.plist &mdash; about 1 minute') : (mode === 'cleanup' ? 'Running cleanup chain &mdash; about 1 minute' : 'Running exploit chain &mdash; about 1 minute')) + '</span>' +
             '<span class="install-status-meta">Page will freeze. Do not switch apps or lock the phone.</span>' +
           '</span>';
       }
-      var btn = document.getElementById('runBtn');
-      if (btn) {
+      var btn = OTA_EXPORT_ONLY_UI ? setPlistActionButtonsRunning() : activeRunButton();
+      if (btn && !OTA_EXPORT_ONLY_UI) {
         btn.className = 'btn btn-disabled';
-        btn.textContent = OTA_EXPORT_ONLY_UI ? 'Exporting...' : (mode === 'cleanup' ? 'Cleaning...' : 'Installing...');
+        btn.textContent = mode === 'cleanup' ? 'Cleaning...' : 'Installing...';
       }
       // Set the progress card SYNCHRONOUSLY before the iframe is created.
       // iOS Safari shares one WebContent process across the parent page and
@@ -3565,7 +3687,7 @@
       var tweakDisplayNames = { fiveicon: 'SBCustomizer', powercuff: 'Powercuff', mgpatcher: 'MobileGestalt Patcher', applimit: '3-App Limit Bypass', statbar: 'StatBar' };
       var displayTweaks = tweaks.map(function(t) { return tweakDisplayNames[t] || t; });
       rawLogAppend('[UI] WebContent log armed', 'ok');
-      logAppend(mode === 'cleanup' ? 'Starting cleanup-only run' : (exportOtaDisabled && displayTweaks.length === 0 ? 'Starting read-only disabled.plist export' : 'Starting install with: ' + displayTweaks.join(', ')), 'ok');
+      logAppend(mode === 'cleanup' ? 'Starting cleanup-only run' : (restoreDisabledPlist ? 'Starting guarded stock disabled.plist restore' : (exportOtaDisabled && displayTweaks.length === 0 ? 'Starting read-only disabled.plist export' : 'Starting install with: ' + displayTweaks.join(', '))), 'ok');
       startLogWatchdog();
       scrollToLog();
 
@@ -3579,7 +3701,7 @@
           if (runReportedError) {
             markFailed('The browser reported an error: ' + runReportedError);
           } else {
-            markUnverified('No browser completion signal or verified export result arrived before the run timed out.');
+            markUnverified('No browser completion signal or verified ' + (restoreDisabledPlist ? 'restore' : 'export') + ' result arrived before the run timed out.');
           }
         } else {
           markDone('Expected run window elapsed. If Safari froze and crashed to the home screen, wait a few seconds and check the home screen for your tweaks.');
@@ -3624,11 +3746,12 @@
         var iosOverrideParam = forcedIosVer ? '&ios=' + encodeURIComponent(forcedIosVer) : '';
         var sbx0OnlyParam = '';
         var otaExportParam = exportOtaDisabled ? '&export_ota_disabled=1' : '';
+        var plistRestoreParam = restoreDisabledPlist ? '&restore_disabled_plist=1' : '';
         try {
           var topParams = new URLSearchParams(location.search || '');
           if (topParams.get('sbx0_only') === '1' || topParams.get('sbx0_only') === 'true' || (isLocalVPhone() && topParams.get('full_chain') !== '1')) sbx0OnlyParam = '&sbx0_only=1';
         } catch (e) {}
-        frame.src = 'frame.html?mode=' + encodeURIComponent(mode) + '&tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + iosOverrideParam + sbx0OnlyParam + otaExportParam + '&_=' + Math.random();
+        frame.src = 'frame.html?mode=' + encodeURIComponent(mode) + '&tweaks=' + encodedTweaks + '&level=' + encodeURIComponent(level) + sbcParams + '&mg_flags=' + encodeURIComponent(mg_flags) + '&mg_unflags=' + encodeURIComponent(mg_unflags) + iosOverrideParam + sbx0OnlyParam + otaExportParam + plistRestoreParam + '&_=' + Math.random();
         frame.style.width = '1px';
         frame.style.height = '1px';
         frame.style.opacity = '0.01';
@@ -3675,7 +3798,7 @@
             return ['fiveicon', 'powercuff', 'mgpatcher', 'applimit', 'statbar'].indexOf(name) !== -1;
           });
           if (OTA_EXPORT_ONLY_UI) autorunTweaks = [];
-          if (autorunTweaks.length === 0 && !otaDisabledExportRequested()) autorunTweaks = ['fiveicon'];
+          if (autorunTweaks.length === 0 && !otaDisabledExportRequested() && !disabledPlistRestoreRequested()) autorunTweaks = ['fiveicon'];
           runExploit(autorunTweaks, 'heavy', autorunSbc, '', '', mode);
         }, 700);
       }

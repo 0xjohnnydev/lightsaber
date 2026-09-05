@@ -9946,6 +9946,7 @@ async function main() {
 		          try { globalThis.__ls_run_mode = (data.ls_run_mode === 'cleanup') ? 'cleanup' : 'install'; } catch (e) { globalThis.__ls_run_mode = 'install'; }
 		          try { globalThis.__ls_tweaks = (typeof data.ls_tweaks === 'string' && data.ls_tweaks.length > 0) ? data.ls_tweaks : 'fiveicon'; } catch (e) { globalThis.__ls_tweaks = 'fiveicon'; }
 		          try { globalThis.__ls_export_ota_disabled = (data.ls_export_ota_disabled === true); } catch (e) { globalThis.__ls_export_ota_disabled = false; }
+		          try { globalThis.__ls_restore_disabled_plist = (data.ls_restore_disabled_plist === true); } catch (e) { globalThis.__ls_restore_disabled_plist = false; }
           try { globalThis.__powercuff_level = (typeof data.ls_powercuff_level === 'string' && data.ls_powercuff_level.length > 0) ? data.ls_powercuff_level : 'heavy'; } catch (e) { globalThis.__powercuff_level = 'heavy'; }
           try { globalThis.__sbc_dock_icons = (typeof data.ls_sbc_dock_icons === 'number') ? data.ls_sbc_dock_icons : 4; } catch (e) { globalThis.__sbc_dock_icons = 4; }
           try { globalThis.__sbc_hs_cols = (typeof data.ls_sbc_hs_cols === 'number') ? data.ls_sbc_hs_cols : 4; } catch (e) { globalThis.__sbc_hs_cols = 4; }
@@ -10285,6 +10286,7 @@ async function main() {
 		            try { globalThis.__ls_run_mode = (data.ls_run_mode === 'cleanup') ? 'cleanup' : 'install'; } catch (e) { globalThis.__ls_run_mode = 'install'; }
 		            try { globalThis.__ls_tweaks = (typeof data.ls_tweaks === 'string' && data.ls_tweaks.length > 0) ? data.ls_tweaks : 'fiveicon'; } catch (e) { globalThis.__ls_tweaks = 'fiveicon'; }
 		            try { globalThis.__ls_export_ota_disabled = (data.ls_export_ota_disabled === true); } catch (e) { globalThis.__ls_export_ota_disabled = false; }
+		            try { globalThis.__ls_restore_disabled_plist = (data.ls_restore_disabled_plist === true); } catch (e) { globalThis.__ls_restore_disabled_plist = false; }
             try { globalThis.__powercuff_level = (typeof data.ls_powercuff_level === 'string' && data.ls_powercuff_level.length > 0) ? data.ls_powercuff_level : 'heavy'; } catch (e) { globalThis.__powercuff_level = 'heavy'; }
             try { globalThis.__sbc_dock_icons = (typeof data.ls_sbc_dock_icons === 'number') ? data.ls_sbc_dock_icons : 4; } catch (e) { globalThis.__sbc_dock_icons = 4; }
             try { globalThis.__sbc_hs_cols = (typeof data.ls_sbc_hs_cols === 'number') ? data.ls_sbc_hs_cols : 4; } catch (e) { globalThis.__sbc_hs_cols = 4; }
