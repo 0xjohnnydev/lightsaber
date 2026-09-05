@@ -1834,7 +1834,7 @@
       <div class="ota-export-card">
         <strong>disabled.plist backup and restore</strong>
         Export copies the source bytes without modification to <code>/<wbr>private/<wbr>var/<wbr>mobile/<wbr>Media/<wbr>Downloads/<wbr>disabled.plist.original</code>
-        Restore fetches the repository file <code>/<wbr>stock/<wbr>disabled.plist</code> for iPhone17,2 on build 22G100 only. It verifies the exact 897-byte payload, rebuilds root:wheel ownership with mode 0644, and first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
+        Restore fetches the repository file <code>/<wbr>stock/<wbr>disabled.plist</code> for iPhone17,2 on build 22G100 only. It always creates a new plist inode, even when the bytes already match. It verifies the exact 897-byte payload, rebuilds root:wheel ownership with mode 0644, and first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
         <span class="ota-export-verification-note">A restore needs a reboot before launchd fully uses the stock file.</span>
       </div>
 
@@ -3578,7 +3578,7 @@
 
     function runDisabledPlistRestore() {
       if (!canRun) return;
-      if (!confirm('Restore the verified repository file /stock/disabled.plist for iPhone17,2 on build 22G100? LightSaber will first save the current plist in Files > Downloads. Reboot after a verified restore.')) return;
+      if (!confirm('Force-replace disabled.plist with the verified repository file /stock/disabled.plist for iPhone17,2 on build 22G100? LightSaber will replace the inode even if the bytes already match, after saving the current plist in Files > Downloads. Reboot after a verified restore.')) return;
       requestedPlistAction = 'restore';
       var defaults = { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0, speedster_jitter: 0, speedster_wake: 0 };
       runExploit([], 'heavy', defaults, '', '', 'install');

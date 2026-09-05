@@ -1,5 +1,5 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260905.17";
+  const LS_PE_PAYLOAD_REVISION = "20260905.18";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
@@ -10864,7 +10864,7 @@ function restoreStockDisabledPlist(launchdTask) {
 		}
 	}
 
-	checkpoint("begin", "source=" + sourcePath + " backup=" + backupPath + " stage_path=" + stagePath);
+	checkpoint("begin", "mode=force-overwrite source=" + sourcePath + " backup=" + backupPath + " stage_path=" + stagePath);
 	checkpoint("stock-expected", "path=" + stockPath + " bytes=" + expectedStockSize + " fnv1a32=0x" +
 		expectedStockFnv1a32.toString(16) + " sha256=" + expectedSha256 + " target=" + expectedModel + "/" + expectedBuild);
 
@@ -10971,13 +10971,10 @@ function restoreStockDisabledPlist(launchdTask) {
 		}
 		checkpoint("source-read", "bytes=" + sourceBytes);
 		let sourceCompare = sourceSize === expectedStockSize ? remoteInt(launchdTask.call(1000, "memcmp", remoteOriginalBuffer, remoteStockBuffer, BigInt(expectedStockSize))) : -1;
+		let sourceMatchedStock = sourceSize === expectedStockSize && sourceCompare === 0;
 		checkpoint("source-compared", "source_bytes=" + sourceSize + " stock_bytes=" + expectedStockSize + " compare=" + sourceCompare +
-			" already_stock=" + (sourceSize === expectedStockSize && sourceCompare === 0 ? 1 : 0));
-		if (sourceSize === expectedStockSize && sourceCompare === 0) {
-			if (!applyAndVerifyStockPermissions(sourceFd, "existing")) return false;
-			logResult("already-stock", "bytes=" + expectedStockSize + " backup_created=0 permissions_verified=1");
-			return true;
-		}
+			" already_stock=" + (sourceMatchedStock ? 1 : 0) + " overwrite_forced=1");
+		if (sourceMatchedStock) checkpoint("source-matches-stock-overwrite-forced", "action=backup-stage-rename");
 
 		backupFd = launchdTask.call(1000, "open", backupPathPointer, O_WRONLY_CREATE_EXCL_NOFOLLOW, 0o644n);
 		if (remoteInt(backupFd) < 0) {
@@ -11049,7 +11046,8 @@ function restoreStockDisabledPlist(launchdTask) {
 		if (!verifyRemoteFile(sourcePathPointer, remoteStockBuffer, expectedStockSize, "final")) return false;
 		if (!verifyStockPermissionsAtPath(sourcePathPointer, "final")) return false;
 		checkpoint("final-verified", "bytes=" + expectedStockSize + " uid=0 gid=0 mode=0644");
-		logResult("success", "bytes=" + expectedStockSize + " previous_bytes=" + sourceSize + " backup_verified=1");
+		logResult("success", "bytes=" + expectedStockSize + " previous_bytes=" + sourceSize +
+			" previous_matched_stock=" + (sourceMatchedStock ? 1 : 0) + " backup_verified=1 overwrite_forced=1");
 		return true;
 	} catch (e) {
 		checkpoint("exception", "error=" + String(e).replace(/\s+/g, " "));
