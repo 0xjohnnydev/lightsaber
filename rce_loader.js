@@ -194,7 +194,10 @@ const dlopen_worker = `(() => {
         globalThis[0] = data;
         createImageBitmap(canvas).then(bitmap => {
           globalThis[1] = bitmap;
-          self.postMessage(null);
+          self.postMessage({
+            marker: globalThis[0],
+            bitmapReady: globalThis[1] === bitmap
+          });
         });
         break;
       case 'dlopen':
@@ -279,7 +282,9 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
                 data: 0x11111111 * i
             });
             worker.onmessage = function(e) {
-                print("[DLOPEN] helper " + i + " initialized");
+                const ack = (e && e.data) ? e.data : {};
+                const marker = (typeof ack.marker === 'number') ? "0x" + ack.marker.toString(16) : String(ack.marker);
+                print("[DLOPEN] helper " + i + " initialized; ackMarker=" + marker + " bitmapReady=" + (ack.bitmapReady === true));
                 r(e);
             };
             });
