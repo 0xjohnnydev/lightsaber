@@ -10593,11 +10593,15 @@ function restoreStockDisabledPlist(launchdTask) {
 			" stock_sha256=" + expectedSha256);
 	}
 
+	function remoteInt(value) {
+		return Number(typeof value === "bigint" ? BigInt.asIntN(64, value) : value);
+	}
+
 	function remoteWriteFully(fd, buffer, size) {
 		let total = 0;
 		while (total < size) {
 			let chunkSize = Math.min(size - total, 32768);
-			let amount = Number(launchdTask.call(1000, "write", fd, buffer + BigInt(total), BigInt(chunkSize)));
+			let amount = remoteInt(launchdTask.call(1000, "write", fd, buffer + BigInt(total), BigInt(chunkSize)));
 			if (amount <= 0) break;
 			total += amount;
 		}
@@ -10608,7 +10612,7 @@ function restoreStockDisabledPlist(launchdTask) {
 		let total = 0;
 		while (total < size) {
 			let chunkSize = Math.min(size - total, 32768);
-			let amount = Number(launchdTask.call(1000, "read", fd, buffer + BigInt(total), BigInt(chunkSize)));
+			let amount = remoteInt(launchdTask.call(1000, "read", fd, buffer + BigInt(total), BigInt(chunkSize)));
 			if (amount <= 0) break;
 			total += amount;
 		}
@@ -10617,18 +10621,18 @@ function restoreStockDisabledPlist(launchdTask) {
 
 	function verifyRemoteFile(pathPointer, expectedBuffer, expectedSize, label) {
 		let fd = launchdTask.call(1000, "open", pathPointer, O_RDONLY_NOFOLLOW);
-		if (Number(fd) < 0) {
+		if (remoteInt(fd) < 0) {
 			logResult(label + "-verify-open-failed", "errno=" + remoteErrno() + " bytes=0 expected=" + expectedSize);
 			return false;
 		}
 		try {
-			let actualSize = Number(launchdTask.call(1000, "lseek", fd, 0n, 2n));
-			if (actualSize !== expectedSize || Number(launchdTask.call(1000, "lseek", fd, 0n, 0n)) !== 0) {
+			let actualSize = remoteInt(launchdTask.call(1000, "lseek", fd, 0n, 2n));
+			if (actualSize !== expectedSize || remoteInt(launchdTask.call(1000, "lseek", fd, 0n, 0n)) !== 0) {
 				logResult(label + "-verify-size-failed", "bytes=" + actualSize + " expected=" + expectedSize + " errno=" + remoteErrno());
 				return false;
 			}
 			let bytesRead = remoteReadFully(fd, remoteVerifyBuffer, expectedSize);
-			let compareResult = bytesRead === expectedSize ? Number(launchdTask.call(1000, "memcmp", expectedBuffer, remoteVerifyBuffer, BigInt(expectedSize))) : -1;
+			let compareResult = bytesRead === expectedSize ? remoteInt(launchdTask.call(1000, "memcmp", expectedBuffer, remoteVerifyBuffer, BigInt(expectedSize))) : -1;
 			if (bytesRead !== expectedSize || compareResult !== 0) {
 				logResult(label + "-verify-content-failed", "bytes=" + bytesRead + " expected=" + expectedSize + " compare=" + compareResult);
 				return false;
@@ -10687,12 +10691,12 @@ function restoreStockDisabledPlist(launchdTask) {
 		}
 
 		sourceFd = launchdTask.call(1000, "open", sourcePathPointer, O_RDONLY_NOFOLLOW);
-		if (Number(sourceFd) < 0) {
+		if (remoteInt(sourceFd) < 0) {
 			let openErrno = remoteErrno();
 			logResult(openErrno === 2 ? "missing" : "source-open-failed", "errno=" + openErrno + " bytes=0");
 			return false;
 		}
-		let sourceSize = Number(launchdTask.call(1000, "lseek", sourceFd, 0n, 2n));
+		let sourceSize = remoteInt(launchdTask.call(1000, "lseek", sourceFd, 0n, 2n));
 		if (sourceSize < 0) {
 			logResult("source-size-failed", "errno=" + remoteErrno() + " bytes=0");
 			return false;
@@ -10705,7 +10709,7 @@ function restoreStockDisabledPlist(launchdTask) {
 			logResult("source-too-large", "bytes=" + sourceSize + " limit=" + maxSourceSize);
 			return false;
 		}
-		if (Number(launchdTask.call(1000, "lseek", sourceFd, 0n, 0n)) !== 0) {
+		if (remoteInt(launchdTask.call(1000, "lseek", sourceFd, 0n, 0n)) !== 0) {
 			logResult("source-seek-failed", "errno=" + remoteErrno() + " bytes=0");
 			return false;
 		}
@@ -10721,19 +10725,19 @@ function restoreStockDisabledPlist(launchdTask) {
 			logResult("source-short-read", "bytes=" + sourceBytes + " expected=" + sourceSize + " errno=" + remoteErrno());
 			return false;
 		}
-		if (sourceSize === expectedStockSize && Number(launchdTask.call(1000, "memcmp", remoteOriginalBuffer, remoteStockBuffer, BigInt(expectedStockSize))) === 0) {
-			logResult("already-stock", "bytes=" + expectedStockSize + " backup=not-created");
+		if (sourceSize === expectedStockSize && remoteInt(launchdTask.call(1000, "memcmp", remoteOriginalBuffer, remoteStockBuffer, BigInt(expectedStockSize))) === 0) {
+			logResult("already-stock", "bytes=" + expectedStockSize + " backup_created=0");
 			return true;
 		}
 
 		backupFd = launchdTask.call(1000, "open", backupPathPointer, O_WRONLY_CREATE_EXCL_NOFOLLOW, 0o644n);
-		if (Number(backupFd) < 0) {
+		if (remoteInt(backupFd) < 0) {
 			logResult("backup-open-failed", "errno=" + remoteErrno() + " bytes=0");
 			return false;
 		}
 		backupCreated = true;
 		let backupBytes = remoteWriteFully(backupFd, remoteOriginalBuffer, sourceSize);
-		if (backupBytes !== sourceSize || Number(launchdTask.call(1000, "fsync", backupFd)) !== 0) {
+		if (backupBytes !== sourceSize || remoteInt(launchdTask.call(1000, "fsync", backupFd)) !== 0) {
 			logResult("backup-write-failed", "bytes=" + backupBytes + " expected=" + sourceSize + " errno=" + remoteErrno());
 			return false;
 		}
@@ -10744,21 +10748,21 @@ function restoreStockDisabledPlist(launchdTask) {
 		LOG("[PLIST-RESTORE] backup-verified bytes=" + sourceSize + " path=" + backupPath);
 
 		stageFd = launchdTask.call(1000, "open", stagePathPointer, O_WRONLY_CREATE_EXCL_NOFOLLOW, 0o600n);
-		if (Number(stageFd) < 0) {
+		if (remoteInt(stageFd) < 0) {
 			logResult("stage-open-failed", "errno=" + remoteErrno() + " bytes=0");
 			return false;
 		}
 		stageCreated = true;
 		let stageBytes = remoteWriteFully(stageFd, remoteStockBuffer, expectedStockSize);
-		if (stageBytes !== expectedStockSize || Number(launchdTask.call(1000, "fsync", stageFd)) !== 0) {
+		if (stageBytes !== expectedStockSize || remoteInt(launchdTask.call(1000, "fsync", stageFd)) !== 0) {
 			logResult("stage-write-failed", "bytes=" + stageBytes + " expected=" + expectedStockSize + " errno=" + remoteErrno());
 			return false;
 		}
-		if (Number(launchdTask.call(1000, "fcopyfile", sourceFd, stageFd, 0n, COPYFILE_METADATA)) !== 0) {
+		if (remoteInt(launchdTask.call(1000, "fcopyfile", sourceFd, stageFd, 0n, COPYFILE_METADATA)) !== 0) {
 			logResult("stage-metadata-failed", "errno=" + remoteErrno() + " bytes=" + stageBytes);
 			return false;
 		}
-		if (Number(launchdTask.call(1000, "fsync", stageFd)) !== 0) {
+		if (remoteInt(launchdTask.call(1000, "fsync", stageFd)) !== 0) {
 			logResult("stage-fsync-failed", "errno=" + remoteErrno() + " bytes=" + stageBytes);
 			return false;
 		}
@@ -10768,7 +10772,7 @@ function restoreStockDisabledPlist(launchdTask) {
 
 		launchdTask.call(1000, "close", sourceFd);
 		sourceFd = -1;
-		if (Number(launchdTask.call(1000, "rename", stagePathPointer, sourcePathPointer)) !== 0) {
+		if (remoteInt(launchdTask.call(1000, "rename", stagePathPointer, sourcePathPointer)) !== 0) {
 			logResult("rename-failed", "errno=" + remoteErrno() + " bytes=0");
 			return false;
 		}
@@ -10776,8 +10780,8 @@ function restoreStockDisabledPlist(launchdTask) {
 		stageCreated = false;
 
 		let directoryFd = launchdTask.call(1000, "open", sourceDirPointer, 0n);
-		if (Number(directoryFd) >= 0) {
-			let directorySync = Number(launchdTask.call(1000, "fsync", directoryFd));
+		if (remoteInt(directoryFd) >= 0) {
+			let directorySync = remoteInt(launchdTask.call(1000, "fsync", directoryFd));
 			launchdTask.call(1000, "close", directoryFd);
 			if (directorySync !== 0) LOG("[PLIST-RESTORE] warning=directory-fsync-failed errno=" + remoteErrno() + " path=" + sourceDir);
 		}
@@ -10789,9 +10793,9 @@ function restoreStockDisabledPlist(launchdTask) {
 		logResult("exception", "bytes=0 error=" + String(e).replace(/\s+/g, " "));
 		return false;
 	} finally {
-		if (Number(sourceFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", sourceFd); } catch (_) {}
-		if (Number(backupFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", backupFd); } catch (_) {}
-		if (Number(stageFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", stageFd); } catch (_) {}
+		if (remoteInt(sourceFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", sourceFd); } catch (_) {}
+		if (remoteInt(backupFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", backupFd); } catch (_) {}
+		if (remoteInt(stageFd) >= 0 && launchdTask) try { launchdTask.call(1000, "close", stageFd); } catch (_) {}
 		if (launchdTask && stageCreated && !sourceReplaced && remotePathBuffer) try { launchdTask.call(1000, "unlink", remotePathBuffer + 1024n); } catch (_) {}
 		if (launchdTask && backupCreated && !backupVerified && remotePathBuffer) try { launchdTask.call(1000, "unlink", remotePathBuffer + 512n); } catch (_) {}
 		if (launchdTask && remoteOriginalBuffer) try { launchdTask.call(1000, "free", remoteOriginalBuffer); } catch (_) {}

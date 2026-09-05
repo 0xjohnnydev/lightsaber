@@ -2049,7 +2049,7 @@
           <button type="button" class="btn-clear-queue" id="clearQueueBtn">Clear queue</button>
         </div>
       </div>
-      <div id="installStatus" class="install-status"></div>
+      <div id="installStatus" class="install-status" role="status" aria-live="polite"></div>
       <div class="run-expectations" id="runExpectations">
         <div class="run-expectations-title">What to expect when you press Install</div>
         <div class="expectation-list">
@@ -2069,35 +2069,6 @@
             <span class="expectation-badge">4</span>
             <span class="expectation-copy"><strong>Just wait 10&ndash;20 seconds after the crash.</strong> Then check the home screen for the tweak you installed.</span>
           </div>
-        </div>
-      </div>
-      <div class="log-sheet" id="logSheet" aria-live="polite">
-        <div class="log-sheet-header">
-          <span class="log-sheet-title">WebContent Log</span>
-          <button type="button" class="log-sheet-clear" onclick="clearRawLogView()">Clear</button>
-        </div>
-        <div class="log-stage-banner" id="logStageBanner">
-          <div class="log-stage-text" id="logStageText">Waiting to start</div>
-          <div class="log-stage-sub" id="logStageSub"></div>
-        </div>
-        <div class="log-phase-strip" id="logPhaseStrip" aria-hidden="true">
-          <div class="log-phase" data-phase="1"><div class="log-phase-bar"></div><div class="log-phase-label">Setup</div></div>
-          <div class="log-phase" data-phase="2"><div class="log-phase-bar"></div><div class="log-phase-label">WebKit</div></div>
-          <div class="log-phase" data-phase="3"><div class="log-phase-bar"></div><div class="log-phase-label">Kernel</div></div>
-          <div class="log-phase" data-phase="4"><div class="log-phase-bar"></div><div class="log-phase-label">Cleanup</div></div>
-          <div class="log-phase" data-phase="5"><div class="log-phase-bar"></div><div class="log-phase-label">Apply</div></div>
-          <span class="frozen-bracket frozen-bracket-l" aria-hidden="true"></span>
-          <span class="frozen-bracket frozen-bracket-r" aria-hidden="true"></span>
-        </div>
-        <div class="log-phase-frozen-note" id="logPhaseFrozenNote" aria-live="polite">
-          Phases 3&ndash;5 run while WebKit is frozen &mdash; no live log updates here.
-        </div>
-        <div class="log-expected-callout" id="logExpectedCallout" role="status" aria-live="polite">
-          <span class="callout-badge">Expected</span>
-          <span class="callout-text" id="logExpectedCalloutText"></span>
-        </div>
-        <div id="rawLogScroll">
-          <div class="raw-log-empty" id="rawLogEmpty">WebContent log lines will appear here when a run starts.</div>
         </div>
       </div>
     </div>
@@ -3178,14 +3149,14 @@
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '0'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
-        installStatusEl.className = 'install-status';
-        installStatusEl.textContent = '';
+        installStatusEl.className = OTA_EXPORT_ONLY_UI ? 'install-status handoff' : 'install-status';
+        installStatusEl.textContent = OTA_EXPORT_ONLY_UI ? 'Success. Wait 60\u201390 seconds, then reboot the device.' : '';
         installStatusEl.dataset.sbxDone = '';
       }
       if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
       var btn = activeRunButton();
-      if (btn) {
-        btn.textContent = OTA_EXPORT_ONLY_UI ? (restoreAction ? 'Restore Verified' : 'Export Verified') : (cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed'));
+      if (btn && !OTA_EXPORT_ONLY_UI) {
+        btn.textContent = cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed');
         btn.className = 'btn btn-done';
       }
       if (respringAfterCleanupPending) {
@@ -3249,21 +3220,18 @@
       if (isFinalRunOutcome() || (runOutcome !== 'running' && runOutcome !== 'unverified') || browserHandoffSeen) return;
       browserHandoffSeen = true;
       exploitRunActive = false;
-      runOutcome = 'handoff';
+      runOutcome = 'success';
       runReportedError = '';
       doneSignal = true;
       stopLogWatchdog();
       stopRunCompletionTimer();
-      var restoreAction = disabledPlistRestoreRequested();
-      logAppend(restoreAction ? 'Success: browser chain completed and handed off the restore. Check syslog for the verified result before rebooting.' : 'Success: browser chain completed and handed off the export. Check Downloads for the copied file.', 'ok');
-      setStageHandoff();
       try { sessionStorage.removeItem('ls_running'); } catch(e) {}
-      try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
+      try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '0'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
         installStatusEl.className = 'install-status handoff';
         installStatusEl.dataset.sbxDone = '';
-        installStatusEl.textContent = restoreAction ? 'Success: Safari completed the browser chain and handed off the restore. Confirm [PLIST-RESTORE] result=success in syslog, then reboot.' : 'Success: Safari completed the browser chain and handed off the export. Check Files > Downloads for disabled.plist.original.';
+        installStatusEl.textContent = 'Success. Wait 60\u201390 seconds, then reboot the device.';
       }
       if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
     }
