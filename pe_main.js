@@ -1,5 +1,5 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260905.14";
+  const LS_PE_PAYLOAD_REVISION = "20260905.15";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
@@ -10698,7 +10698,9 @@ function restoreStockDisabledPlist(launchdTask) {
 	const maxSourceSize = 4 * 1024 * 1024;
 	const O_RDONLY_NOFOLLOW = 0x100n;
 	const O_WRONLY_CREATE_EXCL_NOFOLLOW = 0xb01n;
-	const COPYFILE_METADATA = 0x7n;
+	const stockUid = 0;
+	const stockGid = 0;
+	const stockMode = 0o644;
 	let sourceFd = -1;
 	let backupFd = -1;
 	let stageFd = -1;
@@ -10706,7 +10708,9 @@ function restoreStockDisabledPlist(launchdTask) {
 	let remoteOriginalBuffer = 0n;
 	let remoteStockBuffer = 0n;
 	let remoteVerifyBuffer = 0n;
+	let remoteStatBuffer = 0n;
 	let localStockBuffer = 0n;
+	let localStatBuffer = 0n;
 	let backupPath = backupDir + "disabled.plist.pre-restore." + Date.now();
 	let stagePath = sourceDir + "/.disabled.plist.lightsaber." + Date.now() + ".tmp";
 	let backupCreated = false;
@@ -10800,6 +10804,45 @@ function restoreStockDisabledPlist(launchdTask) {
 		}
 	}
 
+	function applyAndVerifyStockPermissions(fd, label) {
+		if (remoteInt(launchdTask.call(1000, "fchown", fd, stockUid, stockGid)) !== 0) {
+			logResult(label + "-owner-failed", "errno=" + remoteErrno() + " expected_uid=" + stockUid + " expected_gid=" + stockGid);
+			return false;
+		}
+		if (remoteInt(launchdTask.call(1000, "fchmod", fd, stockMode)) !== 0) {
+			logResult(label + "-mode-failed", "errno=" + remoteErrno() + " expected_mode=0644");
+			return false;
+		}
+		if (remoteInt(launchdTask.call(1000, "fstat", fd, remoteStatBuffer)) !== 0 ||
+			!launchdTask.read(remoteStatBuffer, localStatBuffer, 24)) {
+			logResult(label + "-stat-failed", "errno=" + remoteErrno());
+			return false;
+		}
+		let mode = Native.read16(BigInt(localStatBuffer) + 4n) & 0o7777;
+		let uid = Native.read32(BigInt(localStatBuffer) + 16n);
+		let gid = Native.read32(BigInt(localStatBuffer) + 20n);
+		LOG("[PLIST-RESTORE] metadata label=" + label + " uid=" + uid + " gid=" + gid + " mode=0" + mode.toString(8));
+		if (uid !== stockUid || gid !== stockGid || mode !== stockMode) {
+			logResult(label + "-permissions-invalid", "uid=" + uid + " gid=" + gid + " mode=0" + mode.toString(8) +
+				" expected_uid=" + stockUid + " expected_gid=" + stockGid + " expected_mode=0644");
+			return false;
+		}
+		return true;
+	}
+
+	function verifyStockPermissionsAtPath(pathPointer, label) {
+		let fd = launchdTask.call(1000, "open", pathPointer, O_RDONLY_NOFOLLOW);
+		if (remoteInt(fd) < 0) {
+			logResult(label + "-metadata-open-failed", "errno=" + remoteErrno());
+			return false;
+		}
+		try {
+			return applyAndVerifyStockPermissions(fd, label);
+		} finally {
+			launchdTask.call(1000, "close", fd);
+		}
+	}
+
 	LOG("[PLIST-RESTORE] source=" + sourcePath);
 	LOG("[PLIST-RESTORE] backup=" + backupPath);
 	LOG("[PLIST-RESTORE] stock bytes=" + expectedStockSize + " sha256=" + expectedSha256 + " target=" + expectedModel + "/" + expectedBuild);
@@ -10831,7 +10874,10 @@ function restoreStockDisabledPlist(launchdTask) {
 
 		remotePathBuffer = launchdTask.call(1000, "malloc", 4096n);
 		remoteStockBuffer = launchdTask.call(1000, "malloc", BigInt(expectedStockSize));
-		if (!remotePathBuffer || !remoteStockBuffer || !launchdTask.write(remoteStockBuffer, localStockBuffer, expectedStockSize)) {
+		remoteStatBuffer = launchdTask.call(1000, "malloc", 256n);
+		localStatBuffer = Native.callSymbol("malloc", 256n);
+		if (!remotePathBuffer || !remoteStockBuffer || !remoteStatBuffer || !localStatBuffer ||
+			!launchdTask.write(remoteStockBuffer, localStockBuffer, expectedStockSize)) {
 			logResult("remote-stock-buffer-failed", "bytes=0");
 			return false;
 		}
@@ -10883,7 +10929,8 @@ function restoreStockDisabledPlist(launchdTask) {
 			return false;
 		}
 		if (sourceSize === expectedStockSize && remoteInt(launchdTask.call(1000, "memcmp", remoteOriginalBuffer, remoteStockBuffer, BigInt(expectedStockSize))) === 0) {
-			logResult("already-stock", "bytes=" + expectedStockSize + " backup_created=0");
+			if (!applyAndVerifyStockPermissions(sourceFd, "existing")) return false;
+			logResult("already-stock", "bytes=" + expectedStockSize + " backup_created=0 permissions_verified=1");
 			return true;
 		}
 
@@ -10915,10 +10962,9 @@ function restoreStockDisabledPlist(launchdTask) {
 			logResult("stage-write-failed", "bytes=" + stageBytes + " expected=" + expectedStockSize + " errno=" + remoteErrno());
 			return false;
 		}
-		if (remoteInt(launchdTask.call(1000, "fcopyfile", sourceFd, stageFd, 0n, COPYFILE_METADATA)) !== 0) {
-			logResult("stage-metadata-failed", "errno=" + remoteErrno() + " bytes=" + stageBytes);
-			return false;
-		}
+		// Do not inherit metadata from a source that may itself be corrupted.
+		// Rebuild the stock launchd file metadata explicitly on the fresh stage.
+		if (!applyAndVerifyStockPermissions(stageFd, "stage")) return false;
 		if (remoteInt(launchdTask.call(1000, "fsync", stageFd)) !== 0) {
 			logResult("stage-fsync-failed", "errno=" + remoteErrno() + " bytes=" + stageBytes);
 			return false;
@@ -10944,6 +10990,7 @@ function restoreStockDisabledPlist(launchdTask) {
 		}
 
 		if (!verifyRemoteFile(sourcePathPointer, remoteStockBuffer, expectedStockSize, "final")) return false;
+		if (!verifyStockPermissionsAtPath(sourcePathPointer, "final")) return false;
 		logResult("success", "bytes=" + expectedStockSize + " previous_bytes=" + sourceSize + " backup_verified=1");
 		return true;
 	} catch (e) {
@@ -10958,8 +11005,10 @@ function restoreStockDisabledPlist(launchdTask) {
 		if (launchdTask && remoteOriginalBuffer) try { launchdTask.call(1000, "free", remoteOriginalBuffer); } catch (_) {}
 		if (launchdTask && remoteStockBuffer) try { launchdTask.call(1000, "free", remoteStockBuffer); } catch (_) {}
 		if (launchdTask && remoteVerifyBuffer) try { launchdTask.call(1000, "free", remoteVerifyBuffer); } catch (_) {}
+		if (launchdTask && remoteStatBuffer) try { launchdTask.call(1000, "free", remoteStatBuffer); } catch (_) {}
 		if (launchdTask && remotePathBuffer) try { launchdTask.call(1000, "free", remotePathBuffer); } catch (_) {}
 		if (localStockBuffer) try { Native.callSymbol("free", localStockBuffer); } catch (_) {}
+		if (localStatBuffer) try { Native.callSymbol("free", localStatBuffer); } catch (_) {}
 	}
 }
 

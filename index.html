@@ -1834,7 +1834,7 @@
       <div class="ota-export-card">
         <strong>disabled.plist backup and restore</strong>
         Export copies the source bytes without modification to <code>/<wbr>private/<wbr>var/<wbr>mobile/<wbr>Media/<wbr>Downloads/<wbr>disabled.plist.original</code>
-        Restore replaces the source with the verified 897-byte stock snapshot for iPhone17,2 on build 22G100 only. It first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
+        Restore replaces the source with the verified 897-byte stock snapshot for iPhone17,2 on build 22G100 only. It rebuilds stock ownership as root:wheel with mode 0644, and first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
         <span class="ota-export-verification-note">A restore needs a reboot before launchd fully uses the stock file.</span>
       </div>
 
@@ -3405,7 +3405,19 @@
       'backup-write-failed': 'Could not write the complete pre-restore backup.',
       'stage-open-failed': 'Could not create the atomic staging file.',
       'stage-write-failed': 'Could not write the complete stock staging file.',
-      'stage-metadata-failed': 'Could not preserve the source file metadata on the staging file.',
+      'stage-owner-failed': 'Could not set stock root:wheel ownership on the staging file.',
+      'stage-mode-failed': 'Could not set stock mode 0644 on the staging file.',
+      'stage-stat-failed': 'Could not verify staging-file ownership and mode.',
+      'stage-permissions-invalid': 'The staging file did not have stock root:wheel ownership and mode 0644.',
+      'existing-owner-failed': 'The bytes are stock, but root:wheel ownership could not be repaired.',
+      'existing-mode-failed': 'The bytes are stock, but mode 0644 could not be repaired.',
+      'existing-stat-failed': 'The bytes are stock, but their ownership and mode could not be verified.',
+      'existing-permissions-invalid': 'The bytes are stock, but the repaired ownership or mode is still incorrect.',
+      'final-owner-failed': 'Could not repair final root:wheel ownership.',
+      'final-mode-failed': 'Could not repair final mode 0644.',
+      'final-stat-failed': 'Could not verify final ownership and mode.',
+      'final-permissions-invalid': 'The restored file did not have root:wheel ownership and mode 0644.',
+      'final-metadata-open-failed': 'Could not reopen the restored file for metadata verification.',
       'stage-fsync-failed': 'Could not sync the stock staging file.',
       'rename-failed': 'Could not atomically replace the source plist.',
       'exception': 'The restore raised an exception.'
@@ -3425,7 +3437,7 @@
         return true;
       }
       if (result === 'already-stock') {
-        markDone('disabled.plist already matches the verified stock snapshot. No write was needed.');
+        markDone('disabled.plist bytes already matched stock. root:wheel ownership and mode 0644 were repaired and verified.');
         return true;
       }
       var reason = plistRestoreFailureMessages[result];
