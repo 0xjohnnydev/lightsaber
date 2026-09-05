@@ -1,5 +1,5 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260905.18";
+  const LS_PE_PAYLOAD_REVISION = "20260905.19";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
@@ -10693,9 +10693,9 @@ function restoreStockDisabledPlist(launchdTask) {
 	const expectedModel = "iPhone17,2";
 	const expectedBuild = "22G100";
 	const stockPath = "/stock/disabled.plist";
-	const expectedSha256 = "d3af907cf4d0d8008ffc3f86f0049026cc097145ac9132f1e5b08aa412871c9e";
-	const expectedStockSize = 897;
-	const expectedStockFnv1a32 = 0x360f7b19;
+	const expectedSha256 = "b182ef1c04e5a59f4ec9b3513eb86454feb0d407c5fae69163bbc4136f3d30d7";
+	const expectedStockSize = 898;
+	const expectedStockFnv1a32 = 0x351afbc8;
 	const maxSourceSize = 4 * 1024 * 1024;
 	const O_RDONLY_NOFOLLOW = 0x100n;
 	const O_WRONLY_CREATE_EXCL_NOFOLLOW = 0xb01n;

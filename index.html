@@ -1834,7 +1834,7 @@
       <div class="ota-export-card">
         <strong>disabled.plist backup and restore</strong>
         Export copies the source bytes without modification to <code>/<wbr>private/<wbr>var/<wbr>mobile/<wbr>Media/<wbr>Downloads/<wbr>disabled.plist.original</code>
-        Restore fetches the repository file <code>/<wbr>stock/<wbr>disabled.plist</code> for iPhone17,2 on build 22G100 only. It always creates a new plist inode, even when the bytes already match. It verifies the exact 897-byte payload, rebuilds root:wheel ownership with mode 0644, and first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
+        Restore fetches the repository file <code>/<wbr>stock/<wbr>disabled.plist</code> for iPhone17,2 on build 22G100 only. It always creates a new plist inode, even when the bytes already match. It verifies the exact 898-byte payload, rebuilds root:wheel ownership with mode 0644, and first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
         <span class="ota-export-verification-note">A restore needs a reboot before launchd fully uses the stock file.</span>
       </div>
 
@@ -3433,7 +3433,7 @@
       if (result === 'success') {
         var bytesMatch = String(text).match(/\bbytes=(\d+)/i);
         var backupMatch = String(text).match(/\bbackup=([^\s]+)/i);
-        var byteCount = bytesMatch ? bytesMatch[1] : '897';
+        var byteCount = bytesMatch ? bytesMatch[1] : '898';
         var backupPath = backupMatch ? backupMatch[1] : 'Files > Downloads';
         markDone('Restore verified: ' + byteCount + ' stock bytes installed. Backup: ' + backupPath + '. Reboot to apply.');
         return true;

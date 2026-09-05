@@ -27,7 +27,7 @@
 	<key>com.apple.security.otpaird</key>
 	<true/>
 	<key>com.apple.softwareupdateservicesd</key>
-	<true/>
+	<false/>
 	<key>com.apple.sysmond</key>
 	<false/>
 </dict>
