@@ -1001,15 +1001,16 @@ self[1] = boxed_arr;
             log("after get js");
             eval(sbx0_script);
         } catch (e) {
+            const stage1_error = e && e.stack ? e.stack.toString() : String(e);
             try {
               log("[stage1] sbx0 eval failed: " + e);
               if (e && e.stack) log("[stage1] sbx0 eval stack: " + e.stack);
             } catch (_) {}
-            fcall_close();
             self.postMessage({
               type: 'stage1_failed',
-              error: e && e.stack ? e.stack.toString() : String(e)
+              error: stage1_error
             });
+            fcall_close();
             return;
         }
           fcall_close();

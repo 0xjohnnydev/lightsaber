@@ -3220,7 +3220,9 @@
       if (isFinalRunOutcome() || (runOutcome !== 'running' && runOutcome !== 'unverified') || browserHandoffSeen) return;
       browserHandoffSeen = true;
       exploitRunActive = false;
-      runOutcome = 'success';
+      // Keep the visible success message, but retain a provisional internal
+      // state so an explicit terminal worker failure can still replace it.
+      runOutcome = 'handoff';
       runReportedError = '';
       doneSignal = true;
       stopLogWatchdog();
