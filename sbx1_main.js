@@ -6850,13 +6850,39 @@
 	      let pe_main_js_str = getJS('pe_main.js?' + Date.now());
 	      let lsOtaExport = globalThis.__ls_export_ota_disabled === true;
 	      let lsPlistRestore = globalThis.__ls_restore_disabled_plist === true;
-	      const requiredPeRevision = "20260905.15";
+	      const requiredPeRevision = "20260905.16";
 	      const requiredPeMarker = 'const LS_PE_PAYLOAD_REVISION = "' + requiredPeRevision + '";';
 	      if (typeof pe_main_js_str !== 'string' || pe_main_js_str.indexOf(requiredPeMarker) < 0) {
 	        LOG("[MPD] PE payload revision mismatch; refusing launch expected=" + requiredPeRevision + " bytes=" + (pe_main_js_str ? pe_main_js_str.length : 0));
 	        return false;
 	      }
 	      LOG("[MPD] PE payload verified revision=" + requiredPeRevision + " bytes=" + pe_main_js_str.length + " export=" + lsOtaExport + " restore=" + lsPlistRestore);
+	      let lsStockDisabledPlist = null;
+	      if (lsPlistRestore) {
+	        const stockPath = 'stock/disabled.plist';
+	        const expectedStockSize = 897;
+	        const expectedStockFnv1a32 = 0x360f7b19;
+	        lsStockDisabledPlist = getJS(stockPath + '?' + Date.now());
+	        let stockFnv1a32 = 0x811c9dc5;
+	        let stockIsAscii = typeof lsStockDisabledPlist === 'string';
+	        if (stockIsAscii) {
+	          for (let si = 0; si < lsStockDisabledPlist.length; si++) {
+	            let value = lsStockDisabledPlist.charCodeAt(si);
+	            if (value > 0x7f) { stockIsAscii = false; break; }
+	            stockFnv1a32 ^= value;
+	            stockFnv1a32 = Math.imul(stockFnv1a32, 0x01000193) >>> 0;
+	          }
+	        }
+	        if (!stockIsAscii || lsStockDisabledPlist.length !== expectedStockSize || stockFnv1a32 !== expectedStockFnv1a32) {
+	          LOG("[MPD] stock plist validation failed path=/" + stockPath + " bytes=" +
+	            (typeof lsStockDisabledPlist === 'string' ? lsStockDisabledPlist.length : 0) +
+	            " fnv1a32=0x" + stockFnv1a32.toString(16) + " expected_bytes=" + expectedStockSize +
+	            " expected_fnv1a32=0x" + expectedStockFnv1a32.toString(16));
+	          return false;
+	        }
+	        LOG("[MPD] stock plist verified path=/" + stockPath + " bytes=" + expectedStockSize +
+	          " fnv1a32=0x" + stockFnv1a32.toString(16));
+	      }
 	      let lsTweaksRaw = (typeof globalThis.__ls_tweaks === 'string' && globalThis.__ls_tweaks.length > 0) ? globalThis.__ls_tweaks : ((lsOtaExport || lsPlistRestore) ? 'none' : 'fiveicon');
       let validTweaks = { fiveicon: 1, powercuff: 1, mgpatcher: 1, applimit: 1, statbar: 1, speedster: 1 };
       let lsTweakSet = {};
@@ -6928,6 +6954,7 @@
 	      prelude += 'globalThis.__ls_enable_speedster = ' + (lsTweakSet.speedster ? 'true' : 'false') + ';\n';
 	      prelude += 'globalThis.__ls_export_ota_disabled = ' + (lsOtaExport ? 'true' : 'false') + ';\n';
 	      prelude += 'globalThis.__ls_restore_disabled_plist = ' + (lsPlistRestore ? 'true' : 'false') + ';\n';
+	      prelude += 'globalThis.__ls_stock_disabled_plist = ' + JSON.stringify(lsStockDisabledPlist) + ';\n';
       let taMode = (typeof globalThis.__mgpatcher_mode === 'string' && globalThis.__mgpatcher_mode === 'revert') ? 'revert' : 'enable';
       prelude += 'globalThis.__mgpatcher_mode = "' + taMode + '";\n';
       let mgFlags = (typeof globalThis.__mg_flags === 'string') ? globalThis.__mg_flags : '';

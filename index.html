@@ -1834,7 +1834,7 @@
       <div class="ota-export-card">
         <strong>disabled.plist backup and restore</strong>
         Export copies the source bytes without modification to <code>/<wbr>private/<wbr>var/<wbr>mobile/<wbr>Media/<wbr>Downloads/<wbr>disabled.plist.original</code>
-        Restore replaces the source with the verified 897-byte stock snapshot for iPhone17,2 on build 22G100 only. It rebuilds stock ownership as root:wheel with mode 0644, and first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
+        Restore fetches the repository file <code>/<wbr>stock/<wbr>disabled.plist</code> for iPhone17,2 on build 22G100 only. It verifies the exact 897-byte payload, rebuilds root:wheel ownership with mode 0644, and first saves the current bytes in Downloads as <code>disabled.plist.pre-restore.&lt;timestamp&gt;</code>.
         <span class="ota-export-verification-note">A restore needs a reboot before launchd fully uses the stock file.</span>
       </div>
 
@@ -3396,7 +3396,9 @@
       'source-seek-failed': 'Could not seek to the start of the source plist.',
       'source-short-read': 'Could not read the complete source plist.',
       'launchd-task-unavailable': 'The launchd task needed for the restore was unavailable.',
-      'embedded-stock-invalid': 'The embedded stock snapshot failed its size check.',
+      'served-stock-missing': 'The repository stock plist was not supplied to the restore stage.',
+      'served-stock-size-invalid': 'The repository stock plist failed its exact size check.',
+      'served-stock-checksum-invalid': 'The repository stock plist failed its checksum check.',
       'local-stock-buffer-failed': 'Could not prepare the local stock snapshot buffer.',
       'remote-stock-buffer-failed': 'Could not prepare the launchd stock snapshot buffer.',
       'remote-verify-buffer-failed': 'Could not prepare restore verification buffers.',
@@ -3576,7 +3578,7 @@
 
     function runDisabledPlistRestore() {
       if (!canRun) return;
-      if (!confirm('Restore the verified stock disabled.plist for iPhone17,2 on build 22G100? LightSaber will first save the current plist in Files > Downloads. Reboot after a verified restore.')) return;
+      if (!confirm('Restore the verified repository file /stock/disabled.plist for iPhone17,2 on build 22G100? LightSaber will first save the current plist in Files > Downloads. Reboot after a verified restore.')) return;
       requestedPlistAction = 'restore';
       var defaults = { dock_icons: 4, hs_cols: 4, hs_rows: 6, hide_labels: 0, statbar_celsius: 0, statbar_hide_net: 0, speedster_jitter: 0, speedster_wake: 0 };
       runExploit([], 'heavy', defaults, '', '', 'install');

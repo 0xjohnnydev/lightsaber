@@ -1,5 +1,5 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260905.15";
+  const LS_PE_PAYLOAD_REVISION = "20260905.16";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
@@ -10692,9 +10692,10 @@ function restoreStockDisabledPlist(launchdTask) {
 	const backupDir = "/private/var/mobile/Media/Downloads/";
 	const expectedModel = "iPhone17,2";
 	const expectedBuild = "22G100";
+	const stockPath = "/stock/disabled.plist";
 	const expectedSha256 = "d3af907cf4d0d8008ffc3f86f0049026cc097145ac9132f1e5b08aa412871c9e";
-	const stockBase64 = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Y29tLmFwcGxlLk9UQVRhc2tpbmdBZ2VudDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUuYWNjZXNzaWJpbGl0eS5heEF1ZGl0RGFlbW9uLmRldmljZXNlcnZpY2U8L2tleT4KCTxmYWxzZS8+Cgk8a2V5PmNvbS5hcHBsZS5ib290cGQ8L2tleT4KCTx0cnVlLz4KCTxrZXk+Y29tLmFwcGxlLmRoY3A2ZDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUuZHQuVmlld0hpZXJhcmNoeUFnZW50PC9rZXk+Cgk8ZmFsc2UvPgoJPGtleT5jb20uYXBwbGUuZnRwLXByb3h5LWVtYmVkZGVkPC9rZXk+Cgk8ZmFsc2UvPgoJPGtleT5jb20uYXBwbGUuZ3B1dG9vbHNzZXJ2aWNlZDwva2V5PgoJPGZhbHNlLz4KCTxrZXk+Y29tLmFwcGxlLmluc3RydW1lbnRzLmRldmljZXNlcnZpY2U8L2tleT4KCTxmYWxzZS8+Cgk8a2V5PmNvbS5hcHBsZS5tYWdpY3N3aXRjaGQuY29tcGFuaW9uPC9rZXk+Cgk8dHJ1ZS8+Cgk8a2V5PmNvbS5hcHBsZS5tb2JpbGUuTlJEVXBkYXRlZDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUubW9iaWxlLnNvZnR3YXJldXBkYXRlZDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUuc2VjdXJpdHkub3RwYWlyZDwva2V5PgoJPHRydWUvPgoJPGtleT5jb20uYXBwbGUuc29mdHdhcmV1cGRhdGVzZXJ2aWNlc2Q8L2tleT4KCTx0cnVlLz4KCTxrZXk+Y29tLmFwcGxlLnN5c21vbmQ8L2tleT4KCTxmYWxzZS8+CjwvZGljdD4KPC9wbGlzdD4K";
 	const expectedStockSize = 897;
+	const expectedStockFnv1a32 = 0x360f7b19;
 	const maxSourceSize = 4 * 1024 * 1024;
 	const O_RDONLY_NOFOLLOW = 0x100n;
 	const O_WRONLY_CREATE_EXCL_NOFOLLOW = 0xb01n;
@@ -10718,24 +10719,25 @@ function restoreStockDisabledPlist(launchdTask) {
 	let stageCreated = false;
 	let sourceReplaced = false;
 
-	function decodeBase64(input) {
-		const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-		let outputLength = Math.floor(input.length * 3 / 4) - (input.endsWith("==") ? 2 : (input.endsWith("=") ? 1 : 0));
-		let output = new Uint8Array(outputLength);
-		let accumulator = 0;
-		let bits = 0;
-		let offset = 0;
+	function servedStockBytes() {
+		let input = globalThis.__ls_stock_disabled_plist;
+		if (typeof input !== "string") return null;
+		let output = new Uint8Array(input.length);
 		for (let i = 0; i < input.length; i++) {
-			let value = alphabet.indexOf(input.charAt(i));
-			if (value < 0) continue;
-			accumulator = (accumulator << 6) | value;
-			bits += 6;
-			if (bits >= 8) {
-				bits -= 8;
-				if (offset < output.length) output[offset++] = (accumulator >> bits) & 0xff;
-			}
+			let value = input.charCodeAt(i);
+			if (value > 0x7f) return null;
+			output[i] = value;
 		}
 		return output;
+	}
+
+	function fnv1a32(bytes) {
+		let hash = 0x811c9dc5;
+		for (let i = 0; i < bytes.length; i++) {
+			hash ^= bytes[i];
+			hash = Math.imul(hash, 0x01000193) >>> 0;
+		}
+		return hash >>> 0;
 	}
 
 	function remoteErrno() {
@@ -10845,7 +10847,7 @@ function restoreStockDisabledPlist(launchdTask) {
 
 	LOG("[PLIST-RESTORE] source=" + sourcePath);
 	LOG("[PLIST-RESTORE] backup=" + backupPath);
-	LOG("[PLIST-RESTORE] stock bytes=" + expectedStockSize + " sha256=" + expectedSha256 + " target=" + expectedModel + "/" + expectedBuild);
+	LOG("[PLIST-RESTORE] stock path=" + stockPath + " bytes=" + expectedStockSize + " sha256=" + expectedSha256 + " target=" + expectedModel + "/" + expectedBuild);
 
 	try {
 		let identity = {};
@@ -10860,9 +10862,19 @@ function restoreStockDisabledPlist(launchdTask) {
 			return false;
 		}
 
-		let stockBytes = decodeBase64(stockBase64);
+		let stockBytes = servedStockBytes();
+		if (!stockBytes) {
+			logResult("served-stock-missing", "path=" + stockPath + " bytes=0");
+			return false;
+		}
 		if (stockBytes.byteLength !== expectedStockSize) {
-			logResult("embedded-stock-invalid", "bytes=" + stockBytes.byteLength + " expected=" + expectedStockSize);
+			logResult("served-stock-size-invalid", "path=" + stockPath + " bytes=" + stockBytes.byteLength + " expected=" + expectedStockSize);
+			return false;
+		}
+		let stockFnv1a32 = fnv1a32(stockBytes);
+		if (stockFnv1a32 !== expectedStockFnv1a32) {
+			logResult("served-stock-checksum-invalid", "path=" + stockPath + " fnv1a32=0x" + stockFnv1a32.toString(16) +
+				" expected_fnv1a32=0x" + expectedStockFnv1a32.toString(16) + " bytes=" + stockBytes.byteLength);
 			return false;
 		}
 		localStockBuffer = Native.callSymbol("malloc", BigInt(expectedStockSize));
