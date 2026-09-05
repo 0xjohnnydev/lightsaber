@@ -251,18 +251,37 @@ let workerBlobUrl = URL.createObjectURL(workerBlob);
             print("WORKER ERROR: " + msg, true);
             fail("Worker error: " + msg);
         };
+        worker.onmessageerror = function(e) {
+            const msg = (e && e.message) ? e.message : String(e);
+            print("WORKER MESSAGE ERROR: " + msg, true);
+            fail("Worker message error: " + msg);
+        };
         print("Worker created");
         const dlopen_workers = [];
         async function prepare_dlopen_workers() {
         for (let i = 1; i <= 2; ++i) {
             const worker = new Worker(dlopen_worker_url);
             dlopen_workers.push(worker);
+            worker.onerror = function(e) {
+                const msg = (e.message || e) + " at " + (e.filename || '?') + ":" + (e.lineno || '?');
+                print("[DLOPEN] helper " + i + " error: " + msg, true);
+                fail("Dlopen helper " + i + " error: " + msg);
+            };
+            worker.onmessageerror = function(e) {
+                const msg = (e && e.message) ? e.message : String(e);
+                print("[DLOPEN] helper " + i + " message error: " + msg, true);
+                fail("Dlopen helper " + i + " message error: " + msg);
+            };
+            print("[DLOPEN] helper " + i + " created; sending marker 0x" + (0x11111111 * i).toString(16));
             await new Promise(r => {
             worker.postMessage({
                 type: 'init',
                 data: 0x11111111 * i
             });
-            worker.onmessage = r;
+            worker.onmessage = function(e) {
+                print("[DLOPEN] helper " + i + " initialized");
+                r(e);
+            };
             });
         }
         }

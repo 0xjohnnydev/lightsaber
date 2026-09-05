@@ -662,6 +662,12 @@
       -webkit-tap-highlight-color: transparent;
     }
     .log-sheet-clear:active { opacity: 0.6; }
+    .log-sheet-actions {
+      display: flex;
+      flex-shrink: 0;
+      align-items: center;
+      gap: 6px;
+    }
     .log-sheet-header .tweak-sheet-back {
       background: none;
       border: none;
@@ -2067,7 +2073,10 @@
             <div class="log-sheet-title">WebContent Log</div>
             <span class="log-sheet-note">Shows all browser-side messages received before WebKit freezes.</span>
           </div>
-          <button type="button" class="log-sheet-clear" onclick="clearRawLogView()">Clear</button>
+          <div class="log-sheet-actions">
+            <button type="button" class="log-sheet-clear" id="exportLogBtn" onclick="exportRawLog()">Export Log</button>
+            <button type="button" class="log-sheet-clear" onclick="clearRawLogView()">Clear</button>
+          </div>
         </div>
         <div id="rawLogScroll" role="log" aria-live="polite" aria-relevant="additions">
           <div class="raw-log-empty" id="rawLogEmpty">WebContent log lines will appear here when a run starts.</div>
@@ -2702,6 +2711,74 @@
         localStorage.removeItem(RAW_LOG_STORE_KEY);
         if (!keepActive) localStorage.removeItem(RAW_LOG_ACTIVE_KEY);
       } catch (e) {}
+    }
+
+    function setExportLogButtonText(text) {
+      var button = document.getElementById('exportLogBtn');
+      if (!button) return;
+      button.textContent = text;
+      setTimeout(function() {
+        if (button.textContent === text) button.textContent = 'Export Log';
+      }, 1800);
+    }
+
+    async function exportRawLog() {
+      var exportedAt = new Date();
+      var lines = [];
+      var scroll = document.getElementById('rawLogScroll');
+      if (scroll) {
+        var nodes = scroll.querySelectorAll('.raw-log-line');
+        for (var i = 0; i < nodes.length; i++) lines.push(nodes[i].textContent || '');
+      }
+      if (!lines.length) lines.push('(no WebContent log lines captured)');
+
+      var body = [
+        'LightSaber WebContent Log',
+        'Exported: ' + exportedAt.toISOString(),
+        'User agent: ' + navigator.userAgent,
+        'Run outcome: ' + runOutcome,
+        '',
+        lines.join('\n'),
+        ''
+      ].join('\n');
+      var filename = 'lightsaber-webcontent-' + exportedAt.toISOString().replace(/[:.]/g, '-') + '.txt';
+      var blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
+      var file;
+      try {
+        file = new File([blob], filename, { type: blob.type, lastModified: exportedAt.getTime() });
+      } catch (e) {}
+
+      if (file && navigator.share && navigator.canShare) {
+        try {
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: 'LightSaber WebContent Log'
+            });
+            setExportLogButtonText('Shared');
+            return;
+          }
+        } catch (e) {
+          if (e && e.name === 'AbortError') return;
+          rawLogAppend('[UI] Share sheet failed; downloading the log instead: ' + e, 'note');
+        }
+      }
+
+      try {
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        setExportLogButtonText('Downloaded');
+      } catch (e) {
+        rawLogAppend('[UI] Log export failed: ' + e, 'err');
+        setExportLogButtonText('Failed');
+      }
     }
 
     function restoreRawLogView() {
