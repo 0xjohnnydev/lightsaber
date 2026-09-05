@@ -6850,7 +6850,7 @@
 	      let pe_main_js_str = getJS('pe_main.js?' + Date.now());
 	      let lsOtaExport = globalThis.__ls_export_ota_disabled === true;
 	      let lsPlistRestore = globalThis.__ls_restore_disabled_plist === true;
-	      const requiredPeRevision = "20260904.12";
+	      const requiredPeRevision = "20260905.13";
 	      const requiredPeMarker = 'const LS_PE_PAYLOAD_REVISION = "' + requiredPeRevision + '";';
 	      if (typeof pe_main_js_str !== 'string' || pe_main_js_str.indexOf(requiredPeMarker) < 0) {
 	        LOG("[MPD] PE payload revision mismatch; refusing launch expected=" + requiredPeRevision + " bytes=" + (pe_main_js_str ? pe_main_js_str.length : 0));

