@@ -3156,7 +3156,8 @@
 
     function markDone(message) {
       if (isFinalRunOutcome()) return;
-      exploitRunActive = false;
+      var nativeCooldownActive = OTA_EXPORT_ONLY_UI && nativeRunCooldownRemaining() > 0;
+      exploitRunActive = nativeCooldownActive;
       var cleanupBeforeRespring = respringAfterCleanupPending;
       var restoreAction = disabledPlistRestoreRequested();
       runOutcome = 'success';
@@ -3174,7 +3175,10 @@
       if (stageText) stageText.textContent = OTA_EXPORT_ONLY_UI ? (restoreAction ? 'Restore verified' : 'Export verified') : (cleanupBeforeRespring ? 'Cleanup complete' : (message ? 'Check result' : 'Install complete'));
       if (stageSub) stageSub.textContent = OTA_EXPORT_ONLY_UI ? (restoreAction ? 'Source bytes match the stock snapshot' : 'Destination bytes match the source') : (cleanupBeforeRespring ? 'Starting respring' : (message ? 'Safari returned after the expected run window' : 'All tweaks applied successfully'));
       markAllPhasesDone();
-      try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+      try {
+        if (nativeCooldownActive) sessionStorage.setItem('ls_running', '1');
+        else sessionStorage.removeItem('ls_running');
+      } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '0'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
@@ -3182,7 +3186,10 @@
         installStatusEl.textContent = OTA_EXPORT_ONLY_UI ? 'Success. Wait 60\u201390 seconds, then reboot the device.' : '';
         installStatusEl.dataset.sbxDone = '';
       }
-      if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
+      if (OTA_EXPORT_ONLY_UI) {
+        if (nativeCooldownActive) setPlistActionButtonsCoolingDown();
+        else resetPlistActionButtons();
+      }
       var btn = activeRunButton();
       if (btn && !OTA_EXPORT_ONLY_UI) {
         btn.textContent = cleanupBeforeRespring ? 'Cleaned' : (message ? 'Check Result' : 'Installed');
@@ -3197,7 +3204,8 @@
 
     function markFailed(message) {
       if (isFinalRunOutcome()) return;
-      exploitRunActive = false;
+      var nativeCooldownActive = OTA_EXPORT_ONLY_UI && nativeRunCooldownRemaining() > 0;
+      exploitRunActive = nativeCooldownActive;
       runOutcome = 'failed';
       doneSignal = true;
       respringAfterCleanupPending = false;
@@ -3206,7 +3214,16 @@
       var text = message || 'Exploit failed. Force-quit Safari and try again.';
       logAppend(text, 'err');
       setStageError(OTA_EXPORT_ONLY_UI ? (disabledPlistRestoreRequested() ? 'Restore failed' : 'Export failed') : 'Install failed');
-      try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+      try {
+        if (nativeCooldownActive) sessionStorage.setItem('ls_running', '1');
+        else sessionStorage.removeItem('ls_running');
+      } catch(e) {}
+      try {
+        if (nativeRunCooldownRemaining() > 0) {
+          localStorage.setItem(LS_NATIVE_COOLDOWN_OUTCOME_KEY, 'failed');
+          sessionStorage.setItem('ls_running', '1');
+        }
+      } catch(e) {}
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '1'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
@@ -3214,7 +3231,10 @@
         installStatusEl.dataset.sbxDone = '';
         installStatusEl.textContent = text;
       }
-      if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
+      if (OTA_EXPORT_ONLY_UI) {
+        if (nativeCooldownActive) setPlistActionButtonsCoolingDown();
+        else resetPlistActionButtons();
+      }
       var btn = activeRunButton();
       if (btn && canRun && !OTA_EXPORT_ONLY_UI) {
         btn.textContent = 'Install Selected';
@@ -3248,7 +3268,7 @@
     function markBrowserHandoff() {
       if (isFinalRunOutcome() || (runOutcome !== 'running' && runOutcome !== 'unverified') || browserHandoffSeen) return;
       browserHandoffSeen = true;
-      exploitRunActive = false;
+      exploitRunActive = true;
       // Keep the visible success message, but retain a provisional internal
       // state so an explicit terminal worker failure can still replace it.
       runOutcome = 'handoff';
@@ -3256,7 +3276,7 @@
       doneSignal = true;
       stopLogWatchdog();
       stopRunCompletionTimer();
-      try { sessionStorage.removeItem('ls_running'); } catch(e) {}
+      armNativeRunCooldown();
       try { localStorage.setItem(RAW_LOG_ACTIVE_KEY, '0'); } catch(e) {}
       var installStatusEl = document.getElementById('installStatus');
       if (installStatusEl) {
@@ -3264,7 +3284,7 @@
         installStatusEl.dataset.sbxDone = '';
         installStatusEl.textContent = 'Success. Wait 60\u201390 seconds, then reboot the device.';
       }
-      if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
+      if (OTA_EXPORT_ONLY_UI) setPlistActionButtonsCoolingDown();
     }
 
     var otaExportFailureMessages = {
@@ -3596,6 +3616,60 @@
       return activeBtn;
     }
 
+    var LS_NATIVE_COOLDOWN_KEY = 'ls_native_cooldown_until';
+    var LS_NATIVE_COOLDOWN_OUTCOME_KEY = 'ls_native_cooldown_outcome';
+    var LS_NATIVE_COOLDOWN_MS = 90000;
+    var nativeCooldownTimer = 0;
+
+    function nativeRunCooldownRemaining() {
+      try {
+        var deadline = parseInt(localStorage.getItem(LS_NATIVE_COOLDOWN_KEY) || '0', 10);
+        var remaining = deadline - Date.now();
+        if (remaining > 0) return remaining;
+        localStorage.removeItem(LS_NATIVE_COOLDOWN_KEY);
+        localStorage.removeItem(LS_NATIVE_COOLDOWN_OUTCOME_KEY);
+        sessionStorage.removeItem('ls_running');
+      } catch(e) {}
+      return 0;
+    }
+
+    function releaseNativeRunCooldown() {
+      try {
+        localStorage.removeItem(LS_NATIVE_COOLDOWN_KEY);
+        localStorage.removeItem(LS_NATIVE_COOLDOWN_OUTCOME_KEY);
+        sessionStorage.removeItem('ls_running');
+      } catch(e) {}
+      nativeCooldownTimer = 0;
+      if (runOutcome !== 'handoff') {
+        exploitRunActive = false;
+        if (OTA_EXPORT_ONLY_UI) resetPlistActionButtons();
+      }
+    }
+
+    function armNativeRunCooldown(deadline) {
+      var until = deadline || (Date.now() + LS_NATIVE_COOLDOWN_MS);
+      try {
+        localStorage.setItem(LS_NATIVE_COOLDOWN_KEY, String(until));
+        localStorage.setItem(LS_NATIVE_COOLDOWN_OUTCOME_KEY, 'handoff');
+        sessionStorage.setItem('ls_running', '1');
+      } catch(e) {}
+      if (nativeCooldownTimer) clearTimeout(nativeCooldownTimer);
+      nativeCooldownTimer = setTimeout(releaseNativeRunCooldown, Math.max(1, until - Date.now()));
+    }
+
+    function setPlistActionButtonsCoolingDown() {
+      var exportBtn = document.getElementById('runBtn');
+      var restoreBtn = document.getElementById('restoreBtn');
+      if (exportBtn) {
+        exportBtn.className = 'btn btn-disabled';
+        exportBtn.textContent = 'Wait before another run';
+      }
+      if (restoreBtn) {
+        restoreBtn.className = 'btn btn-disabled';
+        restoreBtn.textContent = 'Wait before another run';
+      }
+    }
+
     var exploitRunActive = false;
     function runExploit(tweaks, level, sbc, mg_flags, mg_unflags, mode) {
       if (!canRun) return;
@@ -3616,6 +3690,19 @@
       mg_unflags = mg_unflags || '';
       var installStatusEl = document.getElementById('installStatus');
       try {
+        var cooldownRemaining = nativeRunCooldownRemaining();
+        if (mode !== 'cleanup' && cooldownRemaining > 0) {
+          var cooldownOutcome = localStorage.getItem(LS_NATIVE_COOLDOWN_OUTCOME_KEY) || 'handoff';
+          exploitRunActive = true;
+          armNativeRunCooldown(Date.now() + cooldownRemaining);
+          localStorage.setItem(LS_NATIVE_COOLDOWN_OUTCOME_KEY, cooldownOutcome);
+          if (installStatusEl) {
+            installStatusEl.className = cooldownOutcome === 'failed' ? 'install-status error' : 'install-status handoff';
+            installStatusEl.textContent = cooldownOutcome === 'failed' ? 'The previous run failed. Reboot the device before another run.' : 'Success. Wait 60\u201390 seconds, then reboot the device.';
+          }
+          if (OTA_EXPORT_ONLY_UI) setPlistActionButtonsCoolingDown();
+          return;
+        }
         if (mode !== 'cleanup' && sessionStorage.getItem('ls_running')) {
           if (installStatusEl) {
             installStatusEl.className = 'install-status';
@@ -3764,6 +3851,22 @@
         activeExploitFrameWindow = frame.contentWindow;
       }, 0);
     }
+
+    try {
+      var initialCooldownRemaining = nativeRunCooldownRemaining();
+      if (initialCooldownRemaining > 0) {
+        var initialCooldownOutcome = localStorage.getItem(LS_NATIVE_COOLDOWN_OUTCOME_KEY) || 'handoff';
+        exploitRunActive = true;
+        armNativeRunCooldown(Date.now() + initialCooldownRemaining);
+        localStorage.setItem(LS_NATIVE_COOLDOWN_OUTCOME_KEY, initialCooldownOutcome);
+        if (OTA_EXPORT_ONLY_UI) setPlistActionButtonsCoolingDown();
+        var cooldownStatusEl = document.getElementById('installStatus');
+        if (cooldownStatusEl) {
+          cooldownStatusEl.className = initialCooldownOutcome === 'failed' ? 'install-status error' : 'install-status handoff';
+          cooldownStatusEl.textContent = initialCooldownOutcome === 'failed' ? 'The previous run failed. Reboot the device before another run.' : 'Success. Wait 60\u201390 seconds, then reboot the device.';
+        }
+      }
+    } catch (e) {}
 
     try {
       var __autorunParams = new URLSearchParams(location.search || '');
